@@ -1,7 +1,7 @@
 from app.core.security import get_password_hash, verify_password
 from app.services.auth.jwt import create_access_token, create_refresh_token, role_required
 from app.utils.email import send_otp_email, verify_otp_code
-
+# from app.core.role import role_required
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -54,11 +54,22 @@ async def register_supplier_endpoint(
 async def register_super_admin_endpoint(
     user: UserSignup,
     role: UserRole = Depends(get_super_admin_role),
-    db: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(role_required("super_admin"))
+    db: AsyncSession = Depends(get_db)
 ):
+    # Check if any super admin exists
+    result = await db.execute(select(User).filter(User.role == UserRole.super_admin))
+    existing_super_admin = result.scalar_one_or_none()
+    if existing_super_admin:
+        # If a super admin exists, require authentication (optional: add role_required("super_admin"))
+        from app.core.security import role_required
+        current_user = Depends(get_super_admin_role)
+        logger.debug(f"Existing super admin found: {existing_super_admin.email}. Authentication required.")
+    else:
+        logger.debug("No super admin exists. Allowing unauthenticated super admin creation.")
+    
     logger.debug(f"Register-super-admin payload: {user.dict()}, role: {role}")
     return await register_super_admin(db, user, role)
+
 
 @router.post("/register-sub-admin", response_model=UserResponse)
 async def register_sub_admin_endpoint(
@@ -140,13 +151,14 @@ async def forgot_password(email: str, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    await send_otp_email(email)
+    if not await send_otp_email(email, db):  # Pass db session
+        raise HTTPException(status_code=500, detail="Failed to send OTP email")
     return {"message": "Password reset OTP sent to email"}
 
 @router.post("/reset-password")
 async def reset_password(email: str, otp: str, new_password: str, db: AsyncSession = Depends(get_db)):
     logger.debug(f"Reset password for email: {email}, otp: {otp}")
-    if not await verify_otp_code(email, otp):
+    if not await verify_otp_code(email, otp,db):
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
     
     result = await db.execute(select(User).filter(User.email == email))

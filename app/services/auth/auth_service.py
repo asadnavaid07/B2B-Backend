@@ -51,52 +51,62 @@ async def login_user(db: AsyncSession, user_login: UserLogin) -> Token:
     )
 
 async def register_user(db: AsyncSession, user: UserSignup, role: UserRole) -> UserResponse:
-    result = await db.execute(select(User).filter((User.email == user.email) | (User.username == user.username)))
-    existing_user = result.scalar_one_or_none()
-    if existing_user:
-        if existing_user.is_active:
-            raise HTTPException(status_code=400, detail="Email or username already registered")
-        else:
-            logger.info(f"Deleting unverified user {user.email} for retry")
-            await db.delete(existing_user)
+    try:
+        # Check for existing users
+        result = await db.execute(select(User).filter((User.email == user.email) | (User.username == user.username)))
+        existing_users = result.scalars().all()  # Get all matching users
+        if existing_users:
+            for existing_user in existing_users:
+                if existing_user.is_active:
+                    logger.error(f"Active user found with email {user.email} or username {user.username}")
+                    raise HTTPException(status_code=400, detail="Email or username already registered")
+                else:
+                    logger.info(f"Deleting unverified user {existing_user.email} (ID: {existing_user.id}) for retry")
+                    await db.delete(existing_user)
             await db.commit()
 
-    hashed_password = get_password_hash(user.password)
-    db_user = User(
-        username=user.username,
-        email=user.email,
-        password_hash=hashed_password,
-        role=role,
-        is_active=False,
-        visibility_level=1 if role == UserRole.sub_admin else None,
-        ownership=None
-    )
-    db.add(db_user)
-    await db.commit()
-    await db.refresh(db_user)
-    
-    try:
-        if not await send_otp_email(user.email, db):  # Pass db session
+        # Create new user
+        hashed_password = get_password_hash(user.password)
+        db_user = User(
+            username=user.username,
+            email=user.email,
+            password_hash=hashed_password,
+            role=role,
+            is_active=False,
+            visibility_level=1 if role == UserRole.sub_admin else None,
+            ownership=None
+        )
+        db.add(db_user)
+        await db.commit()
+        await db.refresh(db_user)
+        
+        # Send OTP
+        try:
+            if not await send_otp_email(user.email, db):
+                await db.delete(db_user)
+                await db.commit()
+                logger.error(f"Failed to send OTP to {user.email}")
+                raise HTTPException(status_code=500, detail="Failed to send OTP email")
+            logger.info(f"User {user.email} registered, OTP sent")
+        except HTTPException as e:
             await db.delete(db_user)
             await db.commit()
-            logger.error(f"Failed to send OTP to {user.email}")
-            raise HTTPException(status_code=500, detail="Failed to send OTP email")
-        logger.info(f"User {user.email} registered, OTP sent")
-    except HTTPException as e:
-        await db.delete(db_user)
-        await db.commit()
-        logger.error(f"Error during OTP sending for {user.email}: {str(e)}")
-        raise e
-    
-    return UserResponse(
-        id=db_user.id,
-        username=db_user.username,
-        email=db_user.email,
-        role=db_user.role,
-        is_active=db_user.is_active,
-        visibility_level=db_user.visibility_level,
-        ownership=db_user.ownership
-    )
+            logger.error(f"Error during OTP sending for {user.email}: {str(e)}")
+            raise e
+        
+        return UserResponse(
+            id=db_user.id,
+            username=db_user.username,
+            email=db_user.email,
+            role=db_user.role,
+            is_active=db_user.is_active,
+            visibility_level=db_user.visibility_level,
+            ownership=db_user.ownership
+        )
+    except Exception as e:
+        logger.error(f"Error registering user {user.email}: {str(e)}")
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 async def register_vendor(db: AsyncSession, user_data: UserSignup, role: UserRole = UserRole.vendor) -> UserResponse:
     result = await db.execute(select(User).filter((User.email == user_data.email) | (User.username == user_data.username)))

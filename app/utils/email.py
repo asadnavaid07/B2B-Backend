@@ -39,19 +39,27 @@ async def send_otp_email(email: str, db: AsyncSession = Depends(get_db)) -> bool
             raise HTTPException(status_code=500, detail=f"Failed to send OTP email: Status {response.status_code}")
         
         try:
+            # Clear previous OTPs
             await db.execute(delete(OTP).where(OTP.email == email))
             expires_at = datetime.utcnow() + timedelta(seconds=300)
             new_otp = OTP(
                 email=email,
-                otp_code=otp,  # Store as plain string
+                otp_code=otp,
                 expires_at=expires_at
             )
             db.add(new_otp)
             await db.commit()
+            # Verify OTP was stored
+            result = await db.execute(select(OTP).filter(OTP.email == email, OTP.otp_code == otp))
+            stored_otp = result.scalar_one_or_none()
+            if not stored_otp:
+                logger.error(f"Failed to store OTP {otp} for {email} in database")
+                await db.rollback()
+                raise HTTPException(status_code=500, detail="Failed to store OTP in database")
             logger.info(f"OTP {otp} stored in PostgreSQL for {email}, expires at {expires_at}")
             return True
         except Exception as e:
-            logger.error(f"Failed to store OTP in PostgreSQL for {email}: {str(e)}")
+            logger.error(f"Database error storing OTP for {email}: {str(e)}")
             await db.rollback()
             raise HTTPException(status_code=500, detail=f"Failed to store OTP: {str(e)}")
     except Exception as e:
@@ -60,7 +68,6 @@ async def send_otp_email(email: str, db: AsyncSession = Depends(get_db)) -> bool
 
 async def verify_otp_code(email: str, otp: str, db: AsyncSession = Depends(get_db)) -> bool:
     try:
-        # Strip quotes from OTP if present
         clean_otp = otp.strip('"')
         logger.debug(f"Verifying OTP for {email}: provided={clean_otp}")
         
@@ -76,7 +83,7 @@ async def verify_otp_code(email: str, otp: str, db: AsyncSession = Depends(get_d
         if stored_otp:
             await db.execute(delete(OTP).where(OTP.email == email))
             await db.commit()
-            logger.info(f"OTP verified for {email}")
+            logger.info(f"OTP verified for {email}: stored={stored_otp.otp_code}")
             return True
         
         logger.warning(f"Invalid or expired OTP for {email}: provided={clean_otp}")
