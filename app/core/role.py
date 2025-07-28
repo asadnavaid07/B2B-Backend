@@ -12,3 +12,4 @@ def role_required(required_roles: list[str]):
             )
         return current_user
     return dependency
+

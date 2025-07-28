@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
+
+from fastapi.staticfiles import StaticFiles
 from app.core.database import init_db
 from dotenv import load_dotenv
 from fastapi.openapi.utils import get_openapi
@@ -69,7 +71,7 @@ def create_app() -> FastAPI:
         session_cookie="session_cookie"
     )
 
-    # Include routers
+    app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
     app.include_router(router)
 
     return app

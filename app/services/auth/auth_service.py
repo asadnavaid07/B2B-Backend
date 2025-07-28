@@ -1,4 +1,5 @@
 from fastapi import HTTPException, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.models.user import User, UserRole
@@ -8,6 +9,14 @@ from app.services.auth.jwt import create_access_token, create_refresh_token
 from app.utils.email import send_otp_email
 from datetime import timedelta
 import logging
+from google.oauth2 import id_token
+from google.auth.transport import requests
+from google_auth_oauthlib.flow import Flow
+import logging
+import os
+import secrets
+from dotenv import load_dotenv
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -264,3 +273,114 @@ async def update_sub_admin(db: AsyncSession, user_id: int, user_update: SubAdmin
         return user
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
+
+async def google_login(db: AsyncSession, token: str):
+    email = None
+    try:
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        logger.debug(f"Verifying ID token with client_id: {client_id[:10]}...")
+        if not client_id:
+            raise HTTPException(status_code=500, detail="Missing Google client ID")
+        idinfo = id_token.verify_oauth2_token(token, requests.Request(), client_id)
+        
+        google_id = idinfo['sub']
+        email = idinfo['email']
+        username = idinfo.get('name', email.split('@')[0])
+        
+        result = await db.execute(select(User).filter((User.google_id == google_id) | (User.email == email)))
+        existing_user = result.scalar_one_or_none()
+        
+        if existing_user:
+            if not existing_user.is_active:
+                logger.warning(f"Unverified user found for Google ID {google_id} or email {email}")
+                raise HTTPException(status_code=400, detail="Account not verified. Please complete OTP verification.")
+            logger.info(f"Existing user {email} logged in via Google")
+            access_token = create_access_token(
+                data={"sub": existing_user.email, "user_id": existing_user.id, "role": existing_user.role.value, 
+                      "visibility_level": existing_user.visibility_level, "ownership": existing_user.ownership}
+            )
+            refresh_token = create_refresh_token(data={"sub": existing_user.email})
+            return {
+                "access_token": access_token,
+                "token_type": "bearer",
+                "refresh_token": refresh_token,
+                "user_role": existing_user.role.value,
+                "user_id": existing_user.id,
+                "visibility_level": existing_user.visibility_level,
+                "ownership": existing_user.ownership
+            }
+        
+        result = await db.execute(select(User).filter(User.username == username))
+        existing_username = result.scalar_one_or_none()
+        if existing_username and existing_username.is_active:
+            username = f"{username}_{secrets.randbelow(1000)}"
+        
+        new_user = User(
+            email=email,
+            username=username,
+            google_id=google_id,
+            role=UserRole.buyer,
+            is_active=True
+        )
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
+        
+        logger.info(f"New user {email} created via Google Sign-In")
+        access_token = create_access_token(
+            data={"sub": new_user.email, "user_id": new_user.id, "role": new_user.role.value, 
+                  "visibility_level": new_user.visibility_level, "ownership": new_user.ownership}
+        )
+        refresh_token = create_refresh_token(data={"sub": new_user.email})
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "refresh_token": refresh_token,
+            "user_role": new_user.role.value,
+            "user_id": new_user.id,
+            "visibility_level": new_user.visibility_level,
+            "ownership": new_user.ownership
+        }
+    except ValueError as e:
+        logger.error(f"Invalid Google ID token: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+    except Exception as e:
+        email_str = email if email else "unknown"
+        logger.error(f"Error processing Google login for {email_str}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Google login failed: {str(e)}")
+
+async def start_google_oauth():
+    try:
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        logger.debug(f"Starting OAuth with client_id: {client_id[:10]}...")
+        logger.debug(f"Client secret present: {bool(client_secret)}")
+        if not client_id or not client_secret:
+            raise HTTPException(status_code=500, detail="Missing Google client credentials")
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": ["http://localhost:8000/auth/google-callback"]
+                }
+            },
+            scopes=[
+                "openid",
+                "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/userinfo.profile"
+            ]
+        )
+        flow.redirect_uri = "http://localhost:8000/auth/google-callback"
+        auth_url, state = flow.authorization_url(
+            prompt="consent",
+            include_granted_scopes="true"
+        )
+        logger.info(f"Redirecting to Google auth URL: {auth_url}")
+        return RedirectResponse(auth_url)
+    except Exception as e:
+        logger.error(f"Error starting Google OAuth: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to start Google OAuth: {str(e)}")

@@ -1,18 +1,22 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+from pydantic import BaseModel
 from app.core.security import get_password_hash, verify_password
 from app.services.auth.jwt import create_access_token, create_refresh_token, role_required
 from app.utils.email import send_otp_email, verify_otp_code
-# from app.core.role import role_required
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.schema.user import UserSignup, UserLogin, Token, UserResponse, SubAdminCreate, SubAdminUpdate
-from app.services.auth.auth_service import register_user, register_vendor, register_super_admin, register_sub_admin, update_sub_admin, login_user
-from app.services.auth.jwt import create_access_token, create_refresh_token, role_required
-from app.utils.email import send_otp_email, verify_otp_code
+from app.services.auth.auth_service import register_user, register_vendor, register_super_admin, register_sub_admin, update_sub_admin, login_user, google_login, start_google_oauth
 from datetime import timedelta
 import logging
+
+from google.oauth2 import id_token  # Added import
+from google.auth.transport import requests
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -20,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+class GoogleLoginRequest(BaseModel):
+    id_token: str
+    
 def get_buyer_role() -> UserRole:
     return UserRole.buyer
 
@@ -193,3 +200,58 @@ async def change_password(
 async def logout(current_user: UserResponse = Depends(role_required("vendor", "buyer", "super_admin", "sub_admin"))):
     logger.debug(f"Logout for user_id: {current_user.id}")
     return {"message": "Logged out successfully"}
+
+
+@router.post("/google-login")
+async def google_login_endpoint(request: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
+    if not request.id_token:
+        logger.error("No id_token provided in request")
+        raise HTTPException(status_code=400, detail="Missing id_token")
+    logger.debug(f"Processing Google login with ID token")
+    return await google_login(db, request.id_token)
+
+@router.get("/google-auth")
+async def google_auth_endpoint():
+    logger.debug("Starting Google OAuth flow")
+    return await start_google_oauth()
+
+@router.get("/google-callback")
+async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
+    logger.debug(f"Processing Google OAuth callback: {request.query_params}")
+    code = request.query_params.get("code")
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code")
+    try:
+        from google.oauth2.credentials import Credentials
+        from google_auth_oauthlib.flow import Flow
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        logger.debug(f"Using client_id: {client_id[:10]}... for OAuth flow")
+        logger.debug(f"Client secret present: {bool(client_secret)}")
+        if not client_id or not client_secret:
+            raise HTTPException(status_code=500, detail="Missing Google client credentials")
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": ["http://localhost:8000/auth/google-callback"]
+                }
+            },
+            scopes=[
+                "openid",
+                "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/userinfo.profile"
+            ]
+        )
+        flow.redirect_uri = "http://localhost:8000/auth/google-callback"
+        logger.debug(f"Fetching token with code: {code[:10]}...")
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
+        logger.debug(f"Credentials received: id_token={bool(credentials.id_token)}")
+        return await google_login(db, credentials.id_token)
+    except Exception as e:
+        logger.error(f"Error in Google callback: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Google OAuth failed: {str(e)}")
