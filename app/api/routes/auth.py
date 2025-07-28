@@ -57,25 +57,25 @@ async def register_supplier_endpoint(
     logger.debug(f"Register-supplier payload: {user.dict()}, role: {role}")
     return await register_vendor(db, user, role)
 
-@router.post("/register-super-admin", response_model=UserResponse)
-async def register_super_admin_endpoint(
-    user: UserSignup,
-    role: UserRole = Depends(get_super_admin_role),
-    db: AsyncSession = Depends(get_db)
-):
-    # Check if any super admin exists
-    result = await db.execute(select(User).filter(User.role == UserRole.super_admin))
-    existing_super_admin = result.scalar_one_or_none()
-    if existing_super_admin:
-        # If a super admin exists, require authentication (optional: add role_required("super_admin"))
-        from app.core.security import role_required
-        current_user = Depends(get_super_admin_role)
-        logger.debug(f"Existing super admin found: {existing_super_admin.email}. Authentication required.")
-    else:
-        logger.debug("No super admin exists. Allowing unauthenticated super admin creation.")
+# @router.post("/register-super-admin", response_model=UserResponse)
+# async def register_super_admin_endpoint(
+#     user: UserSignup,
+#     role: UserRole = Depends(get_super_admin_role),
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     # Check if any super admin exists
+#     result = await db.execute(select(User).filter(User.role == UserRole.super_admin))
+#     existing_super_admin = result.scalar_one_or_none()
+#     if existing_super_admin:
+#         # If a super admin exists, require authentication (optional: add role_required("super_admin"))
+#         from app.core.security import role_required
+#         current_user = Depends(get_super_admin_role)
+#         logger.debug(f"Existing super admin found: {existing_super_admin.email}. Authentication required.")
+#     else:
+#         logger.debug("No super admin exists. Allowing unauthenticated super admin creation.")
     
-    logger.debug(f"Register-super-admin payload: {user.dict()}, role: {role}")
-    return await register_super_admin(db, user, role)
+#     logger.debug(f"Register-super-admin payload: {user.dict()}, role: {role}")
+#     return await register_super_admin(db, user, role)
 
 
 @router.post("/register-sub-admin", response_model=UserResponse)
