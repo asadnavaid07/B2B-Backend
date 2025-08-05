@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.models.user import User, UserRole
-from app.schema.user import UserSignup, UserLogin, Token, SubAdminCreate, SubAdminUpdate, UserResponse
+from app.schema.user import SubAdminResponse, UserSignup, UserLogin, Token, SubAdminCreate, SubAdminUpdate, UserResponse
 from app.core.security import get_password_hash, verify_password
 from app.services.auth.jwt import create_access_token, create_refresh_token
 from app.utils.email import send_otp_email
@@ -209,7 +209,7 @@ async def register_super_admin(db: AsyncSession, user_data: UserSignup, role: Us
         ownership=new_user.ownership
     )
 
-async def register_sub_admin(db: AsyncSession, user_data: SubAdminCreate, role: UserRole = UserRole.sub_admin) -> UserResponse:
+async def register_sub_admin(db: AsyncSession, user_data: SubAdminCreate, role: UserRole = UserRole.sub_admin) -> SubAdminResponse:
     result = await db.execute(select(User).filter((User.email == user_data.email) | (User.username == user_data.username)))
     existing_user = result.scalar_one_or_none()
     if existing_user:
@@ -228,31 +228,23 @@ async def register_sub_admin(db: AsyncSession, user_data: SubAdminCreate, role: 
         role=role,
         visibility_level=user_data.visibility_level,
         ownership=user_data.ownership,
-        is_active=False
+        is_active=True
     )
-    db.add(new_user)
-    await db.commit()
-    await db.refresh(new_user)
+    try: 
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
     
-    try:
-        if not await send_otp_email(user_data.email, db):  # Pass db session
-            await db.delete(new_user)
-            await db.commit()
-            logger.error(f"Failed to send OTP to {user_data.email}")
-            raise HTTPException(status_code=500, detail="Failed to send OTP email")
-        logger.info(f"Sub-admin {user_data.email} registered, OTP sent")
     except HTTPException as e:
         await db.delete(new_user)
         await db.commit()
         logger.error(f"Error during OTP sending for {user_data.email}: {str(e)}")
         raise e
     
-    return UserResponse(
-        id=new_user.id,
+    return SubAdminResponse(
         username=new_user.username,
         email=new_user.email,
-        role=new_user.role,
-        is_active=new_user.is_active,
+        password=user_data.password,  # Return raw password as requested
         visibility_level=new_user.visibility_level,
         ownership=new_user.ownership
     )
@@ -273,7 +265,7 @@ async def update_sub_admin(db: AsyncSession, user_id: int, user_update: SubAdmin
         return user
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-    
+
 
 async def google_login(db: AsyncSession, token: str):
     email = None
@@ -297,10 +289,19 @@ async def google_login(db: AsyncSession, token: str):
                 raise HTTPException(status_code=400, detail="Account not verified. Please complete OTP verification.")
             logger.info(f"Existing user {email} logged in via Google")
             access_token = create_access_token(
-                data={"sub": existing_user.email, "user_id": existing_user.id, "role": existing_user.role.value, 
-                      "visibility_level": existing_user.visibility_level, "ownership": existing_user.ownership}
+                email=existing_user.email,
+                user_id=existing_user.id,
+                role=existing_user.role.value,
+                visibility_level=existing_user.visibility_level,
+                ownership=existing_user.ownership
             )
-            refresh_token = create_refresh_token(data={"sub": existing_user.email})
+            refresh_token = create_refresh_token(
+                email=existing_user.email,
+                user_id=existing_user.id,
+                role=existing_user.role.value,
+                visibility_level=existing_user.visibility_level,
+                ownership=existing_user.ownership
+            )
             return {
                 "access_token": access_token,
                 "token_type": "bearer",
@@ -329,10 +330,19 @@ async def google_login(db: AsyncSession, token: str):
         
         logger.info(f"New user {email} created via Google Sign-In")
         access_token = create_access_token(
-            data={"sub": new_user.email, "user_id": new_user.id, "role": new_user.role.value, 
-                  "visibility_level": new_user.visibility_level, "ownership": new_user.ownership}
+            email=new_user.email,
+            user_id=new_user.id,
+            role=new_user.role.value,
+            visibility_level=new_user.visibility_level,
+            ownership=new_user.ownership
         )
-        refresh_token = create_refresh_token(data={"sub": new_user.email})
+        refresh_token = create_refresh_token(
+            email=new_user.email,
+            user_id=new_user.id,
+            role=new_user.role.value,
+            visibility_level=new_user.visibility_level,
+            ownership=new_user.ownership
+        )
         return {
             "access_token": access_token,
             "token_type": "bearer",

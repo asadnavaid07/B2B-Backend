@@ -55,6 +55,13 @@ class UserResponse(BaseModel):
     class Config:
         orm_mode = True
 
+class SubAdminResponse(BaseModel):
+    username: str
+    email: str
+    password: str
+    visibility_level: int
+    ownership: Dict[str, List[str]]
+
 class PlanResponse(BaseModel):
     id: int
     name: str
