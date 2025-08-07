@@ -24,6 +24,8 @@ def create_access_token(email: str, user_id: int, role: str, visibility_level: O
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+
+
 def create_refresh_token(email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None):
     to_encode = {"sub": email, "user_id": user_id, "role": role}
     if visibility_level is not None:
