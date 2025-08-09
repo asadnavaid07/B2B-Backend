@@ -375,7 +375,8 @@ async def start_google_oauth():
                     "client_secret": client_secret,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": ["http://localhost:8000/auth/google-callback"]
+                    "redirect_uris":  ["http://localhost:8000/auth/google-callback","http://localhost:3000/auth/google-callback","https://business-ten-neon.vercel.app/auth/google-callback"]
+                
                 }
             },
             scopes=[
@@ -384,7 +385,7 @@ async def start_google_oauth():
                 "https://www.googleapis.com/auth/userinfo.profile"
             ]
         )
-        flow.redirect_uri = "http://localhost:8000/auth/google-callback"
+        flow.redirect_uri = "https://business-ten-neon.vercel.app/auth/google-callback"
         auth_url, state = flow.authorization_url(
             prompt="consent",
             include_granted_scopes="true"

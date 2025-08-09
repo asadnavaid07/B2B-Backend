@@ -1,9 +1,7 @@
 import os
 from typing import Optional
 from dotenv import load_dotenv
-
 from jose import jwt
-
 from app.models.otp import OTP
 load_dotenv()
 from jose import JWTError
@@ -20,7 +18,6 @@ from app.schema.user import SubAdminResponse, UserSignup, UserLogin, Token, User
 from app.services.auth.auth_service import register_user, register_vendor, register_super_admin, register_sub_admin, update_sub_admin, login_user, google_login, start_google_oauth
 from datetime import timedelta
 import logging
-
 from google.oauth2 import id_token  # Added import
 from google.auth.transport import requests
 
@@ -251,7 +248,7 @@ async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(
                     "client_secret": client_secret,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": ["http://localhost:8000/auth/google-callback"]
+                    "redirect_uris": ["http://localhost:8000/auth/google-callback","http://localhost:3000/auth/google-callback","https://business-ten-neon.vercel.app/auth/google-callback"]
                 }
             },
             scopes=[
@@ -260,7 +257,7 @@ async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(
                 "https://www.googleapis.com/auth/userinfo.profile"
             ]
         )
-        flow.redirect_uri = "http://localhost:8000/auth/google-callback"
+        flow.redirect_uri = "https://business-ten-neon.vercel.app/auth/google-callback"
         logger.debug(f"Fetching token with code: {code[:10]}...")
         flow.fetch_token(code=code)
         credentials = flow.credentials

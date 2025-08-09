@@ -74,3 +74,28 @@ def role_required(*allowed_roles: str):
         except JWTError:
             raise HTTPException(status_code=401, detail="Invalid token")
     return verify_token
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        user_id: int = payload.get("user_id")
+        role: str = payload.get("role")
+        visibility_level: Optional[int] = payload.get("visibility_level")
+        ownership: Optional[Dict[str, List[str]]] = payload.get("ownership")
+        
+        if email is None or user_id is None or role is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        return UserResponse(
+            id=user_id,
+            username=email,  # Adjust based on actual username retrieval
+            email=email,
+            role=role,
+            is_active=True,
+            visibility_level=visibility_level,
+            ownership=ownership
+        )
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
