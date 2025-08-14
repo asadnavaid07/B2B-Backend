@@ -7,7 +7,7 @@ from app.services.auth.jwt import get_current_user
 from app.schema.user import UserResponse
 import os
 import logging
-import re
+import uuid
 
 logger = logging.getLogger(__name__)
 doc_router = APIRouter(prefix="/user", tags=["documents"])
@@ -24,7 +24,7 @@ ALLOWED_DOCUMENT_TYPES = [
 
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".doc", ".docx"}
 
-@doc_router.post("/documents")
+@doc_router.post("/documents", status_code=status.HTTP_201_CREATED)
 async def upload_document(
     document_type: str,
     file: UploadFile = File(...),
@@ -33,12 +33,14 @@ async def upload_document(
 ):
     logger.debug(f"Uploading document for user {current_user.email}: {document_type}")
 
+    # Validate document type
     if document_type not in ALLOWED_DOCUMENT_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid document type. Allowed: {ALLOWED_DOCUMENT_TYPES}"
         )
 
+    # Validate file extension
     file_ext = os.path.splitext(file.filename)[1].lower()
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -46,39 +48,36 @@ async def upload_document(
             detail=f"Invalid file format. Allowed: {ALLOWED_EXTENSIONS}"
         )
 
-    if file.size > 50 * 1024 * 1024:  # 50MB
-        raise HTTPException(status_code=400, detail="File size exceeds 50MB limit")
-
-    # Optional: Validate filename (e.g., CompanyRegistration.pdf)
-    recommended_filename = {
-        "business_registration": "CompanyRegistration",
-        "business_license": "BusinessLicense",
-        "adhaar_card": "Adhaar",
-        "artisan_id_card": "ArtisanID",
-        "bank_statement": "BankStatement",
-        "product_catalog": "ProductCatalog",
-        "certifications": "Certifications"
-    }.get(document_type)
-    if not re.match(rf"^{recommended_filename}\..+$", file.filename, re.IGNORECASE):
-        logger.warning(f"Filename {file.filename} does not match recommended {recommended_filename}{file_ext}")
-
     try:
-        upload_dir = "uploads"
+        # Save file with unique name
+        upload_dir = "uploads/documents"
         os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, f"{current_user.id}_{document_type}_{file.filename}")
+        unique_filename = f"{current_user.id}_{document_type}_{uuid.uuid4()}{file_ext}"
+        file_path = os.path.join(upload_dir, unique_filename)
         with open(file_path, "wb") as f:
-            f.write(file.file.read())
-        
+            content = await file.read()
+            f.write(content)
+
+        # Save to database
         new_document = Document(
             user_id=current_user.id,
             document_type=document_type,
             file_path=file_path,
-            file_name=file.filename
+            file_name=file.filename,
+            ai_verification_status="PENDING",  # Now valid after enum update
+            ai_kpi_score=0,
+            ai_remarks="Awaiting AI verification"
         )
         db.add(new_document)
         await db.commit()
+        await db.refresh(new_document)
+
         logger.info(f"Document uploaded: {document_type} for {current_user.email}")
-        return {"message": "Document uploaded successfully", "file_path": file_path}
+        return {
+            "message": "Document uploaded successfully",
+            "file_path": file_path,
+            "document_id": new_document.id
+        }
     except Exception as e:
         await db.rollback()
         logger.error(f"Error uploading document for {current_user.email}: {str(e)}")
@@ -94,7 +93,7 @@ async def get_document_progress(
         result = await db.execute(
             select(Document.document_type).filter(Document.user_id == current_user.id)
         )
-        uploaded_types = {doc.document_type for doc in result.scalars().all()}
+        uploaded_types = {doc for doc in result.scalars().all()}
         total_required = len(ALLOWED_DOCUMENT_TYPES)
         uploaded_count = len(uploaded_types)
         return {

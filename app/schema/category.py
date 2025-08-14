@@ -1,7 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, validator
-from typing import Optional, List, Literal, Dict
-from datetime import datetime, date
-import enum
+from typing import Optional, List, Dict
 from app.models.registration import PartnershipLevel
 
 class CategoryCreate(BaseModel):
@@ -104,10 +102,6 @@ class PersonalInfo(BaseModel):
 class ProductData(BaseModel):
     name: str = Field(..., max_length=255)
     category_id: int = Field(...)  # References Category.id
-    gi_tag: Optional[bool] = False
-    description: Optional[str] = Field(None, max_length=1000)
-    price: Optional[float] = None
-    images: Optional[List[str]] = None
     attributes: Dict = Field(...)  # Category-specific attributes
 
     @validator("attributes")

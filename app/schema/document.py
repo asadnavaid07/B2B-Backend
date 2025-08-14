@@ -11,7 +11,7 @@ class DocumentType(str, enum.Enum):
 
 
 class VerificationStatus(str, enum.Enum):
-    PENDING = "Pending"
+    PENDING = "PENDING"
     PASS = "Pass"
     FAIL = "Fail"
     AWAITING_ADDITIONAL = "AwaitingAdditional"

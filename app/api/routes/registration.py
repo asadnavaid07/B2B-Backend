@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.core.database import get_db
@@ -90,6 +91,11 @@ async def select_level(
     email = current_user.email.lower().strip()
     logger.debug(f"Level selection for {email}: {level_selection.levels}, is_lateral: {level_selection.is_lateral}")
 
+    result=await db.execute(Select(RegistrationLevel).filter(RegistrationLevel.user_id==current_user.id))
+    exisiting_user=result.scalars().first()
+    if exisiting_user:
+        raise HTTPException(status_code=400, detail="User already has registration levels")
+
     for level in level_selection.levels:
         if level not in LEVEL_REQUIREMENTS:
             raise HTTPException(status_code=400, detail=f"Invalid level: {level}")
@@ -130,6 +136,10 @@ async def submit_personal_info(
 ):
     email = current_user.email.lower().strip()
     logger.debug(f"Personal info for {email}: {info.dict()}")
+    result=await db.execute(Select(RegistrationInfo).filter(RegistrationInfo.user_id==current_user.id))
+    exisiting_user=result.scalars().first()
+    if exisiting_user:
+        raise HTTPException(status_code=400, detail="User already has registration levels")
 
     try:
         new_info = RegistrationInfo(
@@ -192,6 +202,25 @@ async def submit_personal_info(
         raise HTTPException(status_code=500, detail=f"Failed to store personal info: {str(e)}")
     
 
+class SubcategoryData(BaseModel):
+    subcategoryId: str = Field(..., alias="subcategoryId")
+    subcategoryName: str = Field(..., alias="subcategoryName")
+    specifications: Dict = Field(...)
+
+    @validator("specifications")
+    def validate_specifications(cls, v, values):
+        if "subcategoryId" not in values:
+            raise ValueError("Subcategory ID must be specified before specifications")
+        return v
+
+class CategoryData(BaseModel):
+    categoryId: str = Field(..., alias="categoryId")
+    categoryName: str = Field(..., alias="categoryName")
+    subcategories: List[SubcategoryData] = Field(...)
+
+class ProductCatalog(BaseModel):
+    selectedData: List[CategoryData] = Field(...)
+
 @registration_router.post("/products")
 async def submit_product_catalog(
     catalog: ProductCatalog,
@@ -199,54 +228,76 @@ async def submit_product_catalog(
     db: AsyncSession = Depends(get_db)
 ):
     email = current_user.email.lower().strip()
-    logger.debug(f"Product catalog for {email}: {len(catalog.products)} products")
+    logger.debug(f"Product catalog for {email}: {len(catalog.selectedData)} categories")
+    result=await db.execute(Select(RegistrationProduct).filter(RegistrationProduct.user_id==current_user.id))
+    exisiting_user=result.scalars().first()
+    if exisiting_user:
+        raise HTTPException(status_code=400, detail="User already has registration levels")
 
     # Fetch user's selected categories
     result = await db.execute(
-        select(ProductCategory).filter(ProductCategory.user_id == current_user.id)
+        select(Category).filter(Category.user_id == current_user.id)
     )
     user_categories = result.scalars().all()
     if not user_categories:
         raise HTTPException(status_code=400, detail="No categories selected. Please select categories first.")
 
-    user_category_ids = {pc.category_id for pc in user_categories}
+    user_category_map = {c.name: c.id for c in user_categories}
 
     try:
-        for product in catalog.products:
-            if product.category_id not in user_category_ids:
-                raise HTTPException(status_code=400, detail=f"Category ID {product.category_id} not selected by user")
+        for category_data in catalog.selectedData:
+            # Validate category
+            if category_data.categoryName not in user_category_map:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Category {category_data.categoryName} not selected by user"
+                )
+            category_id = user_category_map[category_data.categoryName]
 
-            # Fetch category to validate attributes
-            category_result = await db.execute(
-                select(Category).filter(Category.id == product.category_id)
-            )
-            category = category_result.scalar_one_or_none()
-            if not category:
-                raise HTTPException(status_code=400, detail=f"Invalid category ID: {product.category_id}")
+            # Validate subcategories and specifications
+            for subcategory in category_data.subcategories:
+                subcategory_id = subcategory.subcategoryId
+                category_name = category_data.categoryName
+                if (
+                    category_name not in PRODUCT_CATEGORIES
+                    or subcategory_id not in PRODUCT_CATEGORIES[category_name]["subcategories"]
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Subcategory {subcategory_id} not supported for category {category_name}"
+                    )
 
-            # Validate attributes against PRODUCT_CATEGORIES
-            category_key = category.name
-            subcategory_key = category.subcategory
-            if category_key not in PRODUCT_CATEGORIES or subcategory_key not in PRODUCT_CATEGORIES[category_key]["subcategories"]:
-                raise HTTPException(status_code=400, detail=f"Category {category_key}/{subcategory_key} not supported")
+                valid_specs = PRODUCT_CATEGORIES[category_name]["subcategories"][subcategory_id]
+                for key, value in subcategory.specifications.items():
+                    if key not in valid_specs:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid specification: {key} for {category_name}/{subcategory_id}"
+                        )
+                    if isinstance(value, list):
+                        if not all(val in valid_specs[key] for val in value):
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Invalid values for {key}: {value}"
+                            )
+                    else:
+                        if value not in valid_specs[key]:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Invalid value for {key}: {value}"
+                            )
 
-            valid_attributes = PRODUCT_CATEGORIES[category_key]["subcategories"][subcategory_key]
-            for key, value in product.attributes.items():
-                if key not in valid_attributes:
-                    raise HTTPException(status_code=400, detail=f"Invalid attribute: {key} for {category_key}/{subcategory_key}")
-                if isinstance(value, list):
-                    if not all(val in valid_attributes[key] for val in value):
-                        raise HTTPException(status_code=400, detail=f"Invalid values for {key}: {value}")
-                else:
-                    if value not in valid_attributes[key]:
-                        raise HTTPException(status_code=400, detail=f"Invalid value for {key}: {value}")
-
-            new_product = RegistrationProduct(
-                user_id=current_user.id,
-                category_id=product.category_id,
-                product_data=product.dict(exclude_none=True)
-            )
-            db.add(new_product)
+                # Store product
+                new_product = RegistrationProduct(
+                    user_id=current_user.id,
+                    category_id=category_id,
+                    product_data={
+                        "categoryName": category_data.categoryName,
+                        "subcategoryName": subcategory.subcategoryName,
+                        "specifications": subcategory.specifications
+                    }
+                )
+                db.add(new_product)
         await db.commit()
         logger.info(f"Product catalog stored for {email}")
         return {"message": "Product catalog submitted successfully"}
@@ -254,6 +305,7 @@ async def submit_product_catalog(
         await db.rollback()
         logger.error(f"Error storing product catalog for {email}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to store product catalog: {str(e)}")
+    
 
 @registration_router.post("/agreement")
 async def confirm_agreement(
@@ -263,6 +315,10 @@ async def confirm_agreement(
 ):
     email = current_user.email.lower().strip()
     logger.debug(f"Agreement confirmation for {email}")
+    result=await db.execute(Select(RegistrationAgreement).filter(RegistrationAgreement.user_id==current_user.id))
+    exisiting_user=result.scalars().first()
+    if exisiting_user:
+        raise HTTPException(status_code=400, detail="User already has registration levels")
 
     if not agreement.agreement_signed:
         raise HTTPException(status_code=400, detail="Agreement must be signed")
