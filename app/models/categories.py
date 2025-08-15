@@ -7,6 +7,7 @@ from datetime import datetime
 class Category(Base):
     __tablename__ = "categories"
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String(100), nullable=False)  # e.g., Boutique, Embroidery
     subcategory = Column(String(100), nullable=False)  # e.g., Pashmina, Sozni
 

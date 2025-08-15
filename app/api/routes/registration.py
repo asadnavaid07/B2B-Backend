@@ -8,7 +8,7 @@ from app.models.user import User
 from app.models.registration import RegistrationLevel, RegistrationInfo, RegistrationProduct, RegistrationAgreement, PartnershipLevel
 from app.models.categories import ProductCategory, Category
 from pydantic import BaseModel, Field, validator
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 import logging
 import httpx
 import os
@@ -205,12 +205,17 @@ async def submit_personal_info(
 class SubcategoryData(BaseModel):
     subcategoryId: str = Field(..., alias="subcategoryId")
     subcategoryName: str = Field(..., alias="subcategoryName")
-    specifications: Dict = Field(...)
+    specifications: Dict[str, Union[str, List[str]]] = Field(...)
 
     @validator("specifications")
     def validate_specifications(cls, v, values):
         if "subcategoryId" not in values:
             raise ValueError("Subcategory ID must be specified before specifications")
+        for key, value in v.items():
+            if not isinstance(value, (str, list)):
+                raise ValueError(f"Specification {key} must be a string or list of strings")
+            if isinstance(value, list) and not all(isinstance(val, str) for val in value):
+                raise ValueError(f"Specification {key} list must contain only strings")
         return v
 
 class CategoryData(BaseModel):
@@ -229,70 +234,25 @@ async def submit_product_catalog(
 ):
     email = current_user.email.lower().strip()
     logger.debug(f"Product catalog for {email}: {len(catalog.selectedData)} categories")
-    result=await db.execute(Select(RegistrationProduct).filter(RegistrationProduct.user_id==current_user.id))
-    exisiting_user=result.scalars().first()
-    if exisiting_user:
-        raise HTTPException(status_code=400, detail="User already has registration levels")
 
-    # Fetch user's selected categories
+    # Check if user has already registered products
     result = await db.execute(
-        select(Category).filter(Category.user_id == current_user.id)
+        select(RegistrationProduct).filter(RegistrationProduct.user_id == current_user.id)
     )
-    user_categories = result.scalars().all()
-    if not user_categories:
-        raise HTTPException(status_code=400, detail="No categories selected. Please select categories first.")
-
-    user_category_map = {c.name: c.id for c in user_categories}
+    existing_user = result.scalars().first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="User already has registered products")
 
     try:
         for category_data in catalog.selectedData:
-            # Validate category
-            if category_data.categoryName not in user_category_map:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Category {category_data.categoryName} not selected by user"
-                )
-            category_id = user_category_map[category_data.categoryName]
-
-            # Validate subcategories and specifications
             for subcategory in category_data.subcategories:
-                subcategory_id = subcategory.subcategoryId
-                category_name = category_data.categoryName
-                if (
-                    category_name not in PRODUCT_CATEGORIES
-                    or subcategory_id not in PRODUCT_CATEGORIES[category_name]["subcategories"]
-                ):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Subcategory {subcategory_id} not supported for category {category_name}"
-                    )
-
-                valid_specs = PRODUCT_CATEGORIES[category_name]["subcategories"][subcategory_id]
-                for key, value in subcategory.specifications.items():
-                    if key not in valid_specs:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Invalid specification: {key} for {category_name}/{subcategory_id}"
-                        )
-                    if isinstance(value, list):
-                        if not all(val in valid_specs[key] for val in value):
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Invalid values for {key}: {value}"
-                            )
-                    else:
-                        if value not in valid_specs[key]:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Invalid value for {key}: {value}"
-                            )
-
-                # Store product
+                # Store product directly without category validation
                 new_product = RegistrationProduct(
                     user_id=current_user.id,
-                    category_id=category_id,
                     product_data={
+                        "categoryId": category_data.categoryId,
                         "categoryName": category_data.categoryName,
+                        "subcategoryId": subcategory.subcategoryId,
                         "subcategoryName": subcategory.subcategoryName,
                         "specifications": subcategory.specifications
                     }
@@ -305,8 +265,6 @@ async def submit_product_catalog(
         await db.rollback()
         logger.error(f"Error storing product catalog for {email}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to store product catalog: {str(e)}")
-    
-
 @registration_router.post("/agreement")
 async def confirm_agreement(
     agreement: AgreementConfirmation,

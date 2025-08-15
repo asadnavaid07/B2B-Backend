@@ -27,6 +27,12 @@ class Appointment(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Nullable for guests
     user_type = Column(Enum(UserType), nullable=False)
+    first_name = Column(String(255), nullable=False)
+    last_name = Column(String(255), nullable=False)
+    business_name = Column(String(255), nullable=False)
+    website = Column(String(255))
+    email = Column(String(255), nullable=False)
+    phone_number = Column(String(20), nullable=False)
     appointment_type = Column(Enum(AppointmentType), nullable=False)
     virtual_platform = Column(Enum(VirtualPlatform), nullable=True)  # Required for virtual
     office_location = Column(Enum(OfficeLocation), nullable=True)  # Required for offline

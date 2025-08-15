@@ -100,10 +100,8 @@ class RegistrationProduct(Base):
     __tablename__ = "registration_products"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
-    product_data = Column(JSONB, nullable=False)  # Stores categoryName, subcategoryName, specifications
+    product_data = Column(JSONB, nullable=False)  # Stores categoryId, categoryName, subcategoryId, subcategoryName, specifications
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
 
 class RegistrationAgreement(Base):
     __tablename__ = "registration_agreements"
