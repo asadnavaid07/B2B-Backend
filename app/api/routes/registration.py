@@ -26,7 +26,6 @@ registration_router = APIRouter(prefix="/registration", tags=["registration"])
 
 
 
-# Helper Functions
 async def verify_khrcf(email: str) -> bool:
     try:
         async with httpx.AsyncClient() as client:
@@ -226,6 +225,8 @@ class CategoryData(BaseModel):
 class ProductCatalog(BaseModel):
     selectedData: List[CategoryData] = Field(...)
 
+
+
 @registration_router.post("/products")
 async def submit_product_catalog(
     catalog: ProductCatalog,
@@ -265,6 +266,8 @@ async def submit_product_catalog(
         await db.rollback()
         logger.error(f"Error storing product catalog for {email}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to store product catalog: {str(e)}")
+
+
 @registration_router.post("/agreement")
 async def confirm_agreement(
     agreement: AgreementConfirmation,
@@ -331,3 +334,22 @@ async def confirm_agreement(
         await db.rollback()
         logger.error(f"Error storing agreement for {email}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to store agreement: {str(e)}")
+    
+
+
+@registration_router.get("/registration_info",response_model=PersonalInfo)
+async def get_registration_info(
+        current_user:UserResponse=Depends(get_current_user),
+        db:AsyncSession=Depends(get_db)):
+    try:
+        result=await db.execute(Select(RegistrationInfo).filter(RegistrationInfo.user_id==current_user.id))
+        registration_info = result.scalars().first()
+        if not registration_info:
+            raise HTTPException(status_code=404, detail="Registration info not found")  
+        
+        return registration_info
+    except Exception as e:
+        logger.error(f"Error fetching registration info for {current_user.email}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch registration info: {str(e)}")
+    
+    

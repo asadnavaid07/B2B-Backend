@@ -4,6 +4,8 @@ from sqlalchemy.dialects.postgresql import ENUM
 from app.core.database import Base
 import enum
 
+from app.schema.document import VerificationStatus
+
 class UserType(str, enum.Enum):
     BUYER = "buyer"
     VENDOR = "vendor"
@@ -25,7 +27,6 @@ class OfficeLocation(str, enum.Enum):
 class Appointment(Base):
     __tablename__ = "appointments"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Nullable for guests
     user_type = Column(Enum(UserType), nullable=False)
     first_name = Column(String(255), nullable=False)
     last_name = Column(String(255), nullable=False)
@@ -42,8 +43,5 @@ class Appointment(Base):
     purpose = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=True)  # Optional file
     file_name = Column(String(255), nullable=True)
-    verification_status = Column(
-        ENUM("PASS", "FAIL", "AWAITINGADDITIONAL", "PENDING", name="VerificationStatus"),
-        default="PENDING"
-    )
+    verification_status = Column(Enum(VerificationStatus), default=VerificationStatus.PENDING)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
