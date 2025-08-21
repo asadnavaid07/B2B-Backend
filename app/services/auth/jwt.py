@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
+from app.models.user import RegistrationStatus
 from app.schema.user import UserResponse
 import os
 
@@ -10,7 +11,7 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-def create_access_token(email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None):
+def create_access_token(email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0):
     to_encode = {"sub": email, "user_id": user_id, "role": role}
     if visibility_level is not None:
         to_encode["visibility_level"] = visibility_level
@@ -18,6 +19,10 @@ def create_access_token(email: str, user_id: int, role: str, visibility_level: O
         to_encode["ownership"] = ownership
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
+    
+    if role in ["buyer","vendor"]:
+        to_encode["is_registered"] = is_registered.value
+        to_encode["registration_step"] = registration_step
     else:
         expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
@@ -26,7 +31,7 @@ def create_access_token(email: str, user_id: int, role: str, visibility_level: O
 
 
 
-def create_refresh_token(email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None):
+def create_refresh_token(email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0):
     to_encode = {"sub": email, "user_id": user_id, "role": role}
     if visibility_level is not None:
         to_encode["visibility_level"] = visibility_level
@@ -34,11 +39,16 @@ def create_refresh_token(email: str, user_id: int, role: str, visibility_level: 
         to_encode["ownership"] = ownership
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
+    if role in ["buyer","vendor"]:
+        to_encode["is_registered"] = is_registered.value
+        to_encode["registration_step"] = registration_step
     else:
         expire = datetime.utcnow() + timedelta(days=7)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
 def role_required(*allowed_roles: str):
     async def verify_token(token: str = Depends(oauth2_scheme)) -> UserResponse:
         try:
@@ -48,6 +58,7 @@ def role_required(*allowed_roles: str):
             role: str = payload.get("role")
             visibility_level: Optional[int] = payload.get("visibility_level")
             ownership: Optional[Dict[str, List[str]]] = payload.get("ownership")
+
             
             if email is None or user_id is None or role is None:
                 raise HTTPException(status_code=401, detail="Invalid token")
@@ -64,13 +75,12 @@ def role_required(*allowed_roles: str):
             
             return UserResponse(
                 id=user_id,
-                username=email,  # Adjust based on actual username retrieval
+                username=email,  
                 email=email,
                 role=role,
                 is_active=True,
                 visibility_level=visibility_level,
-                ownership=ownership
-            )
+                ownership=ownership)
         except JWTError:
             raise HTTPException(status_code=401, detail="Invalid token")
     return verify_token
@@ -84,6 +94,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
         role: str = payload.get("role")
         visibility_level: Optional[int] = payload.get("visibility_level")
         ownership: Optional[Dict[str, List[str]]] = payload.get("ownership")
+        is_registered: Optional[str] = payload.get("is_registered")
+        registration_step: Optional[int] = payload.get("registration_step")
         
         if email is None or user_id is None or role is None:
             raise HTTPException(status_code=401, detail="Invalid token")
@@ -95,7 +107,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
             role=role,
             is_active=True,
             visibility_level=visibility_level,
-            ownership=ownership
+            ownership=ownership,
+            is_registered=is_registered,
+            registration_step=registration_step
         )
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")

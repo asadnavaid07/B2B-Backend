@@ -39,7 +39,9 @@ async def login_user(db: AsyncSession, user_login: UserLogin) -> Token:
         role=user.role.value,
         visibility_level=user.visibility_level,
         ownership=user.ownership,
-        expires_delta=expires_delta_access
+        expires_delta=expires_delta_access,
+        is_registered= user.is_registered,
+        registration_step= user.registration_step
     )
     refresh_token = create_refresh_token(
         email=user.email,
@@ -47,7 +49,9 @@ async def login_user(db: AsyncSession, user_login: UserLogin) -> Token:
         role=user.role.value,
         visibility_level=user.visibility_level,
         ownership=user.ownership,
-        expires_delta=expires_delta_refresh
+        expires_delta=expires_delta_refresh,
+        is_registered= user.is_registered,
+        registration_step= user.registration_step
     )
     return Token(
         access_token=access_token,
@@ -56,7 +60,9 @@ async def login_user(db: AsyncSession, user_login: UserLogin) -> Token:
         user_role=user.role.value,
         user_id=user.id,
         visibility_level=user.visibility_level,
-        ownership=user.ownership
+        ownership=user.ownership,
+        is_registered= user.is_registered,
+        registration_step= user.registration_step
     )
 
 async def register_user(db: AsyncSession, user: UserSignup, role: UserRole) -> UserResponse:

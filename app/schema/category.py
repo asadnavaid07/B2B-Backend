@@ -116,3 +116,38 @@ class ProductCatalog(BaseModel):
 class AgreementConfirmation(BaseModel):
     agreement_signed: bool = True
     agreement_url: Optional[str] = None
+
+
+class PersonalInfoDashboardResponse(BaseModel):
+    # Business Summary
+    business_name: str
+    business_type: str
+    year_established: Optional[int]
+    website: Optional[str]
+    annual_turnover: Optional[str]
+
+    # Location
+    city: str
+    state_region: str
+    country: str
+
+    # Contact Person (basic info only)
+    contact_person_name: str
+    contact_email: str
+    contact_phone: str
+
+    # Credibility Snapshot
+    certifications: Optional[List[str]]
+    material_standard: Optional[int]
+    quality_level: Optional[int]
+    sustainability_level: Optional[int]
+    service_level: Optional[int]
+    standards_level: Optional[int]
+    ethics_level: Optional[int]
+
+    # Compliance / Risk Indicators (flags only)
+    kyc_challenges: bool
+    gst_compliance_issues: bool
+    fema_payment_issues: bool
+    fraud_cybersecurity_issues: bool
+    regulatory_actions: bool

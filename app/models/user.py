@@ -1,8 +1,14 @@
-from sqlalchemy import Column, Integer, String, Boolean, Enum, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import Column, Float, Integer, String, Boolean, Enum, DateTime, ForeignKey, Text, JSON
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 from datetime import datetime
 import enum
+from enum import Enum as PyEnum
+
+class RegistrationStatus(PyEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
 
 class UserRole(str, enum.Enum):
     vendor = "vendor"
@@ -23,25 +29,12 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     google_id = Column(String, unique=True, nullable=True) 
-
-    profile = relationship("UserProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    kpi_score = Column(Float, default=0.0)
+    partnership_level = Column(String, default="Drop Shipping Vendor")
+    retention_period = Column(String, default="None")
+    retention_start_date = Column(DateTime, nullable=True) 
+    is_registered = Column(Enum(RegistrationStatus), nullable=False, default=RegistrationStatus.PENDING)
+    registration_step = Column(Integer, nullable=False, default=1)
+    
     documents = relationship("Document", back_populates="user", cascade="all, delete-orphan")
-    user_plans = relationship("UserPlan", back_populates="user", cascade="all, delete-orphan")
-
-class UserProfile(Base):
-    __tablename__ = "user_profiles"
-    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
-    name = Column(String, nullable=False)
-    dob = Column(DateTime, nullable=False)
-    cnic_passport = Column(String, nullable=False)
-    phone_number = Column(String, nullable=False)
-    business_name = Column(String, nullable=False)
-    business_type = Column(String, nullable=False)
-    business_reg_number = Column(String, nullable=False)
-    business_address = Column(Text, nullable=False)
-    business_phone = Column(String, nullable=False)
-    website = Column(String, nullable=True)
-    socials = Column(JSON, nullable=True)
-    user = relationship("User", back_populates="profile")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+   

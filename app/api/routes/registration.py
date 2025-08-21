@@ -119,7 +119,15 @@ async def select_level(
                 kpi_threshold=requirements["kpi_threshold"]
             )
             db.add(new_level)
+        result = await db.execute(
+        Select(User).filter(User.id == current_user.id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.registration_step=1
+            
         await db.commit()
+
         logger.info(f"Levels registered for {email}: {level_selection.levels}")
         return {"message": "Levels selected successfully"}
     except Exception as e:
@@ -192,6 +200,12 @@ async def submit_personal_info(
             regulatory_actions=info.regulatory_actions
         )
         db.add(new_info)
+        result = await db.execute(
+        Select(User).filter(User.id == current_user.id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.registration_step=2
         await db.commit()
         logger.info(f"Personal info stored for {email}")
         return {"message": "Personal info submitted successfully"}
@@ -259,6 +273,12 @@ async def submit_product_catalog(
                     }
                 )
                 db.add(new_product)
+                result = await db.execute(
+                Select(User).filter(User.id == current_user.id))
+                user = result.scalar_one_or_none()
+                if not user:
+                   raise HTTPException(status_code=404, detail="User not found")
+                user.registration_step=3
         await db.commit()
         logger.info(f"Product catalog stored for {email}")
         return {"message": "Product catalog submitted successfully"}
@@ -304,6 +324,12 @@ async def confirm_agreement(
             agreement_url=agreement.agreement_url
         )
         db.add(new_agreement)
+        result = await db.execute(
+        Select(User).filter(User.id == current_user.id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.registration_step=5
         await db.commit()
         logger.info(f"Agreement confirmed for {email}")
 

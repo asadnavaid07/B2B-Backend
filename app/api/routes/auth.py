@@ -21,6 +21,7 @@ from datetime import timedelta
 import logging
 from google.oauth2 import id_token  # Added import
 from google.auth.transport import requests
+from app.schema.user import GoogleLoginRequest, RefreshTokenRequest, ResendOTPRequest, get_buyer_role, get_vendor_role, get_super_admin_role, get_sub_admin_role
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -28,28 +29,6 @@ logger = logging.getLogger(__name__)
 
 auth_router = APIRouter(prefix=("/auth"),tags=["auth"])
 
-
-class ResendOTPRequest(BaseModel):
-    email: str
-
-class GoogleLoginRequest(BaseModel):
-    id_token: str
-
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
-    
-def get_buyer_role() -> UserRole:
-    return UserRole.buyer
-
-def get_vendor_role() -> UserRole:
-    return UserRole.vendor
-
-def get_super_admin_role() -> UserRole:
-    return UserRole.super_admin
-
-def get_sub_admin_role() -> UserRole:
-    return UserRole.sub_admin
 
 @auth_router.post("/signup", response_model=UserResponse)
 async def signup(

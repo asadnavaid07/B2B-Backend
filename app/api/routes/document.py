@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.core.database import get_db
 from app.models.document import Document
+from app.models.user import User
 from app.services.auth.jwt import get_current_user
 from app.schema.user import UserResponse
 import os
@@ -69,6 +71,12 @@ async def upload_document(
             ai_remarks="Awaiting AI verification"
         )
         db.add(new_document)
+        result = await db.execute(
+        Select(User).filter(User.id == current_user.id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.registration_step=4
         await db.commit()
         await db.refresh(new_document)
 
