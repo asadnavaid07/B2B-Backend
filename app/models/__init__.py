@@ -6,3 +6,4 @@ from .registration import RegistrationAgreement,RegistrationInfo, RegistrationLe
 from .teams import Team, TeamMember
 from .appointment import Appointment
 from .notification import Notification
+from .job import Job

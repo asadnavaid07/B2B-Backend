@@ -1,232 +1,204 @@
-import os
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.models.teams import Team, TeamMember
-from app.schema.teams import TeamCreate, TeamUpdate, TeamResponse, TeamMemberCreate, TeamMemberUpdate, TeamMemberResponse
-from app.services.auth.jwt import role_required
+from app.models.user import User
+from app.services.auth.jwt import get_current_user
+from app.schema.teams import TeamCreate, TeamUpdate, TeamResponse, TeamFullResponse, TeamMemberCreate, TeamMemberUpdate, TeamMemberResponse
 from app.schema.user import UserResponse
-import logging
-from datetime import datetime
-import shutil
+from app.schema.user import UserRole
+import os
 import uuid
+import logging
+from sqlalchemy.orm import selectinload
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+teams_router = APIRouter(prefix="/teams", tags=["teams"])
 
-team_router = APIRouter(prefix="/teams", tags=["teams"])
 
-# Directory for storing team member images
-UPLOAD_DIR = "uploads/team_members"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
-@team_router.get("", response_model=List[TeamResponse])
-async def get_teams(db: AsyncSession = Depends(get_db)):
-    logger.debug("Fetching all teams with members and sub-teams")
-    result = await db.execute(
-        select(Team)
-        .filter(Team.parent_id == None)  # Only top-level teams
-        .options(selectinload(Team.members), selectinload(Team.sub_teams).selectinload(Team.members))
-    )
-    teams = result.scalars().all()
-    if not teams:
-        logger.info("No teams found")
-        return []
-    return teams
-
-@team_router.post("", response_model=TeamResponse)
-async def create_team(
-    team: TeamCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(role_required("super_admin", "sub_admin"))
-):
-    logger.debug(f"Creating team: {team.dict()}")
-    if team.parent_id:
-        result = await db.execute(select(Team).filter(Team.id == team.parent_id))
-        parent_team = result.scalar_one_or_none()
-        if not parent_team:
-            logger.error(f"Parent team ID {team.parent_id} not found")
-            raise HTTPException(status_code=404, detail="Parent team not found")
-    
-    db_team = Team(**team.dict())
-    db.add(db_team)
+async def save_member_image(file: UploadFile, team_id: int) -> str:
     try:
+        upload_dir = f"uploads/team_members/{team_id}"
+        os.makedirs(upload_dir, exist_ok=True)
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"Invalid file format. Allowed: {ALLOWED_EXTENSIONS}")
+        unique_filename = f"{uuid.uuid4()}{file_ext}"
+        file_path = os.path.join(upload_dir, unique_filename)
+        
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        return file_path
+    except Exception as e:
+        logger.error(f"Error saving team member image: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
+
+@teams_router.get("/", response_model=list[TeamResponse])
+async def get_teams(db: AsyncSession = Depends(get_db)):
+    try:
+        result = await db.execute(
+            select(Team).options(selectinload(Team.members))
+        )
+        teams = result.scalars().all()
+        logger.info(f"Fetched {len(teams)} teams")
+        return teams
+    except Exception as e:
+        logger.error(f"Error fetching teams: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch teams: {str(e)}")
+
+@teams_router.post("/", status_code=201, response_model=TeamFullResponse)
+async def create_team(
+    team_data: TeamCreate,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if current_user.role not in [UserRole.super_admin, UserRole.sub_admin]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        new_team = Team(**team_data.dict())
+        db.add(new_team)
         await db.commit()
-        await db.refresh(db_team)
-        logger.info(f"Team {db_team.name} created successfully")
-        return db_team
+        await db.refresh(new_team)
+        logger.info(f"Team created: {new_team.name} (team_id={new_team.id}) by user {current_user.email}")
+        return new_team
     except Exception as e:
         await db.rollback()
         logger.error(f"Error creating team: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create team: {str(e)}")
 
-@team_router.post("/update", response_model=TeamResponse)
+@teams_router.post("/update", status_code=200, response_model=TeamFullResponse)
 async def update_team(
     team_id: int,
-    team_update: TeamUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(role_required("super_admin", "sub_admin"))
+    team_data: TeamUpdate,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    logger.debug(f"Updating team ID {team_id}: {team_update.dict()}")
-    result = await db.execute(select(Team).filter(Team.id == team_id))
-    db_team = result.scalar_one_or_none()
-    if not db_team:
-        logger.error(f"Team ID {team_id} not found")
-        raise HTTPException(status_code=404, detail="Team not found")
-    
-    if team_update.parent_id:
-        result = await db.execute(select(Team).filter(Team.id == team_update.parent_id))
-        parent_team = result.scalar_one_or_none()
-        if not parent_team:
-            logger.error(f"Parent team ID {team_update.parent_id} not found")
-            raise HTTPException(status_code=404, detail="Parent team not found")
-    
-    update_data = team_update.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_team, key, value)
-    db_team.updated_at = datetime.utcnow()
+    if current_user.role not in [UserRole.super_admin, UserRole.sub_admin]:
+        raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
-        db.add(db_team)
+        result = await db.execute(select(Team).filter(Team.id == team_id))
+        team = result.scalar_one_or_none()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+        
+        for field, value in team_data.dict(exclude_unset=True).items():
+            setattr(team, field, value)
+        
+        db.add(team)
         await db.commit()
-        await db.refresh(db_team)
-        logger.info(f"Team ID {team_id} updated successfully")
-        return db_team
+        await db.refresh(team)
+        
+        result = await db.execute(select(TeamMember).filter(TeamMember.team_id == team.id))
+        team.members = result.scalars().all()
+        logger.info(f"Team updated: {team.name} (team_id={team_id}) by user {current_user.email}")
+        return team
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error updating team ID {team_id}: {str(e)}")
+        logger.error(f"Error updating team {team_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update team: {str(e)}")
 
-@team_router.post("/members/add", response_model=TeamMemberResponse)
+from fastapi import Form
+
+@teams_router.post("/members/add", status_code=201, response_model=TeamMemberResponse)
 async def add_team_member(
     team_id: int,
-    member: TeamMemberCreate,
+    name: str = Form(...),
+    role: str = Form(...),
     image: UploadFile = File(None),
-    db: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(role_required("super_admin", "sub_admin"))
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    logger.debug(f"Adding member to team ID {team_id}: {member.dict()}")
-    result = await db.execute(select(Team).filter(Team.id == team_id))
-    team = result.scalar_one_or_none()
-    if not team:
-        logger.error(f"Team ID {team_id} not found")
-        raise HTTPException(status_code=404, detail="Team not found")
-    ALLOWED_TYPES = {"jpeg", "png", "gif", "webp"}
-    image_path = None
-    if image:
-        file_extension = image.filename.split(".")[-1]
-        if file_extension not in ALLOWED_TYPES:
-         raise HTTPException(400, "Invalid or unsupported image format")
-
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        image_path = os.path.join(UPLOAD_DIR, unique_filename)
-        try:
-            with open(image_path, "wb") as buffer:
-                shutil.copyfileobj(image.file, buffer)
-            logger.debug(f"Image saved at {image_path}")
-        except Exception as e:
-            logger.error(f"Error saving image: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
+    if current_user.role not in [UserRole.super_admin, UserRole.sub_admin]:
+        raise HTTPException(status_code=403, detail="Admin access required")
     
-    db_member = TeamMember(
-        team_id=team_id,
-        name=member.name,
-        role=member.role,
-        bio=member.bio,
-        image=image_path
-    )
-    db.add(db_member)
     try:
+        result = await db.execute(select(Team).filter(Team.id == team_id))
+        team = result.scalar_one_or_none()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+        
+        image_path = None
+        if image:
+            image_path = await save_member_image(image, team_id)
+        
+        new_member = TeamMember(
+            team_id=team_id,
+            name=name,
+            role=role,
+            image_path=image_path
+        )
+        db.add(new_member)
         await db.commit()
-        await db.refresh(db_member)
-        logger.info(f"Team member {db_member.name} added to team ID {team_id}")
-        return db_member
+        await db.refresh(new_member)
+        logger.info(f"Team member added: {new_member.name} to team_id={team_id} by user {current_user.email}")
+        return new_member
     except Exception as e:
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
         await db.rollback()
-        logger.error(f"Error adding team member: {str(e)}")
+        logger.error(f"Error adding team member to team {team_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to add team member: {str(e)}")
+    
 
-@team_router.post("/members/update", response_model=TeamMemberResponse)
+
+@teams_router.post("/members/update", status_code=200, response_model=TeamMemberResponse)
 async def update_team_member(
     member_id: int,
-    member_update: TeamMemberUpdate,
+    member_data: TeamMemberUpdate,
     image: UploadFile = File(None),
-    db: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(role_required("super_admin", "sub_admin"))
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    logger.debug(f"Updating team member ID {member_id}: {member_update.dict()}")
-    result = await db.execute(select(TeamMember).filter(TeamMember.id == member_id))
-    db_member = result.scalar_one_or_none()
-    if not db_member:
-        logger.error(f"Team member ID {member_id} not found")
-        raise HTTPException(status_code=404, detail="Team member not found")
-    
-    image_path = db_member.image
-    if image:
-        file_extension = image.filename.split(".")[-1]
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        image_path = os.path.join(UPLOAD_DIR, unique_filename)
-        try:
-            with open(image_path, "wb") as buffer:
-                shutil.copyfileobj(image.file, buffer)
-            logger.debug(f"New image saved at {image_path}")
-            if db_member.image and os.path.exists(db_member.image):
-                os.remove(db_member.image)
-                logger.debug(f"Old image {db_member.image} deleted")
-        except Exception as e:
-            logger.error(f"Error saving image: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
-    
-    update_data = member_update.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(db_member, key, value)
-    if image_path:
-        db_member.image = image_path
-    db_member.updated_at = datetime.utcnow()
+    if current_user.role not in [UserRole.super_admin, UserRole.sub_admin]:
+        raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
-        db.add(db_member)
+        result = await db.execute(select(TeamMember).filter(TeamMember.id == member_id))
+        member = result.scalar_one_or_none()
+        if not member:
+            raise HTTPException(status_code=404, detail="Team member not found")
+        
+        for field, value in member_data.dict(exclude_unset=True).items():
+            setattr(member, field, value)
+        
+        if image:
+            member.image_path = await save_member_image(image, member.team_id)
+        
+        db.add(member)
         await db.commit()
-        await db.refresh(db_member)
-        logger.info(f"Team member ID {member_id} updated successfully")
-        return db_member
+        await db.refresh(member)
+        logger.info(f"Team member updated: {member.name} (member_id={member_id}) by user {current_user.email}")
+        return member
     except Exception as e:
-        if image_path and image_path != db_member.image and os.path.exists(image_path):
-            os.remove(image_path)
         await db.rollback()
-        logger.error(f"Error updating team member ID {member_id}: {str(e)}")
+        logger.error(f"Error updating team member {member_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update team member: {str(e)}")
 
-@team_router.delete("/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+@teams_router.delete("/members/{id}", status_code=200)
 async def delete_team_member(
-    member_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: UserResponse = Depends(role_required("super_admin", "sub_admin"))
+    id: int,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    logger.debug(f"Deleting team member ID {member_id}")
-    result = await db.execute(select(TeamMember).filter(TeamMember.id == member_id))
-    db_member = result.scalar_one_or_none()
-    if not db_member:
-        logger.error(f"Team member ID {member_id} not found")
-        raise HTTPException(status_code=404, detail="Team member not found")
-    
-    if db_member.image and os.path.exists(db_member.image):
-        try:
-            os.remove(db_member.image)
-            logger.debug(f"Image {db_member.image} deleted")
-        except Exception as e:
-            logger.warning(f"Failed to delete image {db_member.image}: {str(e)}")
+    if current_user.role not in [UserRole.super_admin, UserRole.sub_admin]:
+        raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
-        await db.delete(db_member)
+        result = await db.execute(select(TeamMember).filter(TeamMember.id == id))
+        member = result.scalar_one_or_none()
+        if not member:
+            raise HTTPException(status_code=404, detail="Team member not found")
+        
+        await db.delete(member)
         await db.commit()
-        logger.info(f"Team member ID {member_id} deleted successfully")
+        logger.info(f"Team member deleted: member_id={id} by user {current_user.email}")
+        return {"message": "Team member deleted successfully", "member_id": id}
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error deleting team member ID {member_id}: {str(e)}")
+        logger.error(f"Error deleting team member {id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete team member: {str(e)}")

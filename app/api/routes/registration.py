@@ -72,12 +72,12 @@ LEVEL_REQUIREMENTS = {
     PartnershipLevel.BRICK_MORTAR: {"retention_months": 12, "kpi_threshold": 9.0},
     PartnershipLevel.DESIGN_COLLABORATION: {"retention_months": 6, "kpi_threshold": 8.0},
     PartnershipLevel.STORYTELLING: {"retention_months": 6, "kpi_threshold": 7.0},
-    PartnershipLevel.TRAINER: {"retention_months": 12, "kpi_threshold": 9.0},
-    PartnershipLevel.CRAFT_RD: {"retention_months": 12, "kpi_threshold": 9.0},
-    PartnershipLevel.INVESTOR: {"retention_months": 12, "kpi_threshold": 9.0},
-    PartnershipLevel.NGO_POLICY: {"retention_months": 12, "kpi_threshold": 8.0},
-    PartnershipLevel.SUBSIDIARY: {"retention_months": 24, "kpi_threshold": 9.0},
-    PartnershipLevel.KPI_LEADER: {"retention_months": 24, "kpi_threshold": 9.5},
+    PartnershipLevel.WAREHOUSE: {"retention_months": 6, "kpi_threshold": 8.0},
+    PartnershipLevel.PACKAGING: {"retention_months": 6, "kpi_threshold": 8.0},
+    PartnershipLevel.LOGISTICS: {"retention_months": 12, "kpi_threshold": 9.0},
+    PartnershipLevel.MUSEUM_INSTITUTIONAL: {"retention_months": 12, "kpi_threshold": 8.0},
+    PartnershipLevel.NGO_GOVERNMENT: {"retention_months": 12, "kpi_threshold": 8.0},
+    PartnershipLevel.TECHNOLOGY_PARTNERSHIP: {"retention_months": 24, "kpi_threshold": 9.5},
 }
 
 # Routes

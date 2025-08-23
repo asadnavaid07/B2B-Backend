@@ -5,7 +5,8 @@ from app.core.database import Base
 import enum
 from datetime import datetime
 
-class PartnershipLevel(str, enum.Enum):
+
+class PartnershipLevel(enum.Enum):
     DROP_SHIPPING = "drop_shipping"
     CONSIGNMENT = "consignment"
     IMPORT_EXPORT = "import_export"
@@ -16,12 +17,12 @@ class PartnershipLevel(str, enum.Enum):
     BRICK_MORTAR = "brick_mortar"
     DESIGN_COLLABORATION = "design_collaboration"
     STORYTELLING = "storytelling"
-    TRAINER = "trainer"
-    CRAFT_RD = "craft_rd"
-    INVESTOR = "investor"
-    NGO_POLICY = "ngo_policy"
-    SUBSIDIARY = "subsidiary"
-    KPI_LEADER = "kpi_leader"
+    WAREHOUSE = "warehouse"
+    PACKAGING = "packaging"
+    LOGISTICS = "logistics"
+    MUSEUM_INSTITUTIONAL = "museum_institutional"
+    NGO_GOVERNMENT = "ngo_government"
+    TECHNOLOGY_PARTNERSHIP = "technology_partnership"
 
 class RegistrationLevel(Base):
     __tablename__ = "registration_levels"

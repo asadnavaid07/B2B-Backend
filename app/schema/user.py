@@ -98,7 +98,9 @@ class UserDashboardResponse(BaseModel):
     ownership: Optional[Dict[str, List[str]]] = None
     kpi_score: Optional[float] = None         
     partnership_level: Optional[str] = None  
-    retention_period: Optional[str] = None 
+    retention_period: Optional[str] = None
+    is_registered: Optional[str] = "PENDING"
+    registration_step: Optional[int] = 0 
 
     class Config:
         orm_mode = True

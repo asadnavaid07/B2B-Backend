@@ -5,46 +5,52 @@ from datetime import datetime
 class TeamMemberBase(BaseModel):
     name: str
     role: str
-    bio: Optional[str] = None
 
 class TeamMemberCreate(TeamMemberBase):
-    image: Optional[str] = None  # Will be handled by file upload
-
-class TeamMemberUpdate(TeamMemberBase):
     name: Optional[str] = None
     role: Optional[str] = None
-    bio: Optional[str] = None
-    image: Optional[str] = None
 
-class TeamMemberResponse(TeamMemberBase):
+class TeamMemberUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+
+class TeamMemberResponse(BaseModel):
     id: int
-    team_id: int
-    image: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    name: str
+    role: str
+    image_path: Optional[str]
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class TeamBase(BaseModel):
     name: str
-    description: Optional[str] = None
-    parent_id: Optional[int] = None
+    description: str
 
 class TeamCreate(TeamBase):
     pass
 
-class TeamUpdate(TeamBase):
+class TeamUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    parent_id: Optional[int] = None
 
-class TeamResponse(TeamBase):
+class TeamResponse(BaseModel):
     id: int
-    created_at: datetime
-    updated_at: datetime
-    members: List[TeamMemberResponse] = []
-    sub_teams: List['TeamResponse'] = []
+    name: str
+    description: str
+    members: List[TeamMemberBase]
+    created_at: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+class TeamFullResponse(TeamBase):
+    id: int
+    members: List[TeamMemberResponse]
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

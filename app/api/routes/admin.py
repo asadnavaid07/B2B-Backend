@@ -209,5 +209,34 @@ async def get_user(user_id:int,role:UserRole=Depends(get_super_admin_role),db:As
         raise HTTPException(status_code=500, detail=f"Failed to fetch user: {str(e)}")
     
 
+
+@admin_router.delete("/sub-admin/{user_id}",status_code=200)
+async def delete_sub_admin(
+    user_id:int,
+    role:UserRole=Depends(get_super_admin_role),
+    current_user:UserResponse=Depends(get_current_user),
+    db:AsyncSession=Depends(get_db)
+):
+    if role!=get_super_admin_role():
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    try:
+        result=await db.execute(
+            Select(User).filter(User.id==user_id,User.role==UserRole.sub_admin)
+        )
+        sub_admin=result.scalar_one_or_none()
+        if not sub_admin:
+            raise HTTPException(status_code=404, detail="Sub-admin not found")
+        
+        await db.delete(sub_admin)
+        await db.commit()
+        
+        logger.info(f"Sub-admin {sub_admin.email} deleted by {current_user.email}")
+        return {"message":"Sub-admin deleted successfully"}
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error deleting sub-admin {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete sub-admin: {str(e)}")
+
     
 

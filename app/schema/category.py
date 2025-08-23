@@ -119,35 +119,61 @@ class AgreementConfirmation(BaseModel):
 
 
 class PersonalInfoDashboardResponse(BaseModel):
-    # Business Summary
+    # Business Details
     business_name: str
+    business_legal_structure: str
     business_type: str
     year_established: Optional[int]
+    business_registration_number: str
+    brand_affiliations: Optional[str]
     website: Optional[str]
     annual_turnover: Optional[str]
-
-    # Location
+    # Tax & Registration Information
+    gst_number: str
+    tax_identification_number: str
+    import_export_code: Optional[str]
+    # Business Address
+    street_address_1: str
+    street_address_2: Optional[str]
     city: str
     state_region: str
+    postal_code: str
     country: str
-
-    # Contact Person (basic info only)
+    # Contact Person
     contact_person_name: str
-    contact_email: str
+    contact_email: EmailStr
     contact_phone: str
-
-    # Credibility Snapshot
-    certifications: Optional[List[str]]
+    contact_whatsapp: Optional[str]
+    # Contact Person Address
+    contact_district: str
+    contact_pin_code: str
+    contact_state: str
+    contact_country: str
+    # Credibility Assessment
     material_standard: Optional[int]
     quality_level: Optional[int]
     sustainability_level: Optional[int]
     service_level: Optional[int]
     standards_level: Optional[int]
     ethics_level: Optional[int]
-
-    # Compliance / Risk Indicators (flags only)
+    certifications: Optional[List[str]]
+    # Banking Information
+    bank_name: str
+    account_name: str
+    account_type: str
+    account_number: str
+    ifsc_code: str
+    swift_bis_code: Optional[str]
+    iban_code: Optional[str]
+    # Regulatory Challenges
     kyc_challenges: bool
     gst_compliance_issues: bool
     fema_payment_issues: bool
+    digital_banking_issues: bool
     fraud_cybersecurity_issues: bool
+    payment_gateway_compliance_issues: bool
+    account_activity_issues: bool
     regulatory_actions: bool
+
+    class Config:
+        from_attributes = True
