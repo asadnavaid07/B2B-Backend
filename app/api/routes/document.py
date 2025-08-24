@@ -108,9 +108,7 @@ async def upload_document(
                 file_name=file.filename,
                 ai_verification_status=VerificationStatus.PENDING,
                 ai_kpi_score=0.0,
-                ai_remarks="Awaiting AI verification",
-                kpi_details={},
-                extracted_data={}
+                ai_remarks="Awaiting AI verification"
             )
             
             db.add(new_document)
@@ -130,7 +128,6 @@ async def upload_document(
                 "file_name": file.filename,
                 "status": verification_result["status"],
                 "remarks": verification_result["remarks"],
-                "kpi_details": verification_result["kpi_details"]
             })
 
         # Check if all required documents are uploaded and verified
