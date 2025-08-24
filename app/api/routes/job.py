@@ -51,8 +51,15 @@ async def create_job(
         raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
+        # Strip tzinfo from datetime to match TIMESTAMP WITHOUT TIME ZONE
+        job_dict = job_data.dict()
+        if "application_deadline" in job_dict and job_dict["application_deadline"]:
+            deadline = job_dict["application_deadline"]
+            if deadline.tzinfo is not None:
+                job_dict["application_deadline"] = deadline.replace(tzinfo=None)
+
         new_job = Job(
-            **job_data.dict(),
+            **job_dict,
             posted_by=current_user.id
         )
         db.add(new_job)
@@ -64,6 +71,7 @@ async def create_job(
         await db.rollback()
         logger.error(f"Error creating job: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create job: {str(e)}")
+
 
 @jobs_router.post("/update", status_code=200, response_model=JobFullResponse)
 async def update_job(
@@ -81,7 +89,14 @@ async def update_job(
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         
-        for field, value in job_data.dict(exclude_unset=True).items():
+        update_fields = job_data.dict(exclude_unset=True)
+        # Strip tzinfo from application_deadline
+        if "application_deadline" in update_fields and update_fields["application_deadline"]:
+            deadline = update_fields["application_deadline"]
+            if deadline.tzinfo is not None:
+                update_fields["application_deadline"] = deadline.replace(tzinfo=None)
+        
+        for field, value in update_fields.items():
             setattr(job, field, value)
         
         db.add(job)
@@ -93,6 +108,7 @@ async def update_job(
         await db.rollback()
         logger.error(f"Error updating job {job_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update job: {str(e)}")
+
 
 @jobs_router.delete("/{id}", status_code=200)
 async def delete_job(
