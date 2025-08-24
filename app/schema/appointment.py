@@ -83,3 +83,25 @@ class AvailableTimeResponse(BaseModel):
     date: date
     time_slots: List[str]
     time_zone: str
+
+
+class AppointmentByDayResponseItem(BaseModel):
+    appointment_type: str
+    appointment_time: str
+    time_zone: str
+    user_type: str
+
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            time: lambda v: v.strftime("%I:%M %p")
+        }
+
+class AppointmentByDayResponse(BaseModel):
+    date: str
+    appointments: List[AppointmentByDayResponseItem]
+
+class AvailableTimeResponse(BaseModel):
+    date: date
+    time_slots: List[str]
+    time_zone: str

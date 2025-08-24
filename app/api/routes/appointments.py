@@ -3,11 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.core.database import get_db
 from app.models.appointment import Appointment, VerificationStatus
-from app.schema.appointment import AppointmentResponse, AvailableTimeResponse
-from app.services.auth.jwt import get_current_user
-from app.schema.user import UserResponse
+from app.schema.appointment import AppointmentByDayResponse, AppointmentResponse
 from datetime import date, datetime, timedelta, time
-from pydantic import BaseModel
 from typing import List, Optional
 import logging
 import os
@@ -255,11 +252,20 @@ async def create_appointment(
 
     # Validate time slot
     if user_type == "guest":
-        config = TIME_SLOTS_CONFIG[user_type][email.split('@')[1].split('.')[0]][appointment_type]
+     region = office_location or "USA"   # default fallback region
+     if region not in TIME_SLOTS_CONFIG[user_type]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid or missing region '{region}' for guest"
+        )
+     config = TIME_SLOTS_CONFIG[user_type][region][appointment_type]
     else:
-        config = TIME_SLOTS_CONFIG[user_type][appointment_type]
-        if appointment_type == "offline":
-            config = config[office_location or "USA Office – HQ"]
+     config = TIME_SLOTS_CONFIG[user_type][appointment_type]
+    if appointment_type == "offline":
+        config = config[office_location or "USA Office – HQ"]
+    else:
+        office_location = None
+
     is_friday = parsed_date.weekday() == 4
     is_saturday = parsed_date.weekday() == 5
     if is_saturday and "saturday_times" in config:
@@ -342,3 +348,41 @@ async def create_appointment(
         await db.rollback()
         logger.error(f"Error creating appointment :{str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create appointment: {str(e)}")
+    
+
+@appointment_router.get("/getAppointmentByDay", response_model=AppointmentByDayResponse)
+async def get_appointment_by_day(
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        # Validate and parse date
+        try:
+            parsed_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+        # Fetch appointments for the given date
+        result = await db.execute(
+            select(Appointment)
+            .filter(Appointment.appointment_date == parsed_date)
+            .order_by(Appointment.appointment_time)
+        )
+        appointments = result.scalars().all()
+
+        logger.info(f"Fetched {len(appointments)} appointments for date {date}")
+        return {
+            "date": date,
+            "appointments": [
+                {
+                    "appointment_type": appointment.appointment_type,
+                    "appointment_time": appointment.appointment_time.strftime("%I:%M %p"),
+                    "time_zone": appointment.time_zone,
+                    "user_type": appointment.user_type
+                }
+                for appointment in appointments
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error fetching appointments for date {date}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch appointments: {str(e)}")
