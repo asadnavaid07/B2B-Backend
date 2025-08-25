@@ -5,7 +5,7 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.registration import RegistrationInfo
 from app.services.auth.jwt import get_current_user
-from app.schema.user import UserResponse
+from app.schema.user import UserDashboardResponse, UserResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
@@ -112,3 +112,22 @@ async def update_profile(
         await db.rollback()
         logger.error(f"Error updating profile for user {current_user.id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update profile: {str(e)}")
+
+
+@user_router.get("/profile", response_model=UserDashboardResponse)
+async def get_profile(
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        result = await db.execute(
+            select(User).filter(User.id == current_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return user
+    except Exception as e:
+        logger.error(f"Error fetching profile for user {current_user.id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {str(e)}")

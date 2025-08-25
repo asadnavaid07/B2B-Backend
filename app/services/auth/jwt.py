@@ -11,8 +11,8 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-def create_access_token(email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0):
-    to_encode = {"sub": email, "user_id": user_id, "role": role}
+def create_access_token(username:str,email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0):
+    to_encode = {"username":username,"sub": email, "user_id": user_id, "role": role}
     if visibility_level is not None:
         to_encode["visibility_level"] = visibility_level
     if ownership is not None:
@@ -31,8 +31,8 @@ def create_access_token(email: str, user_id: int, role: str, visibility_level: O
 
 
 
-def create_refresh_token(email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0):
-    to_encode = {"sub": email, "user_id": user_id, "role": role}
+def create_refresh_token(username:str,email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0):
+    to_encode = {"username":username,"sub": email, "user_id": user_id, "role": role}
     if visibility_level is not None:
         to_encode["visibility_level"] = visibility_level
     if ownership is not None:
@@ -53,6 +53,7 @@ def role_required(*allowed_roles: str):
     async def verify_token(token: str = Depends(oauth2_scheme)) -> UserResponse:
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            username:str = payload.get("username")
             email: str = payload.get("sub")
             user_id: int = payload.get("user_id")
             role: str = payload.get("role")
@@ -75,7 +76,7 @@ def role_required(*allowed_roles: str):
             
             return UserResponse(
                 id=user_id,
-                username=email,  
+                username=username,  
                 email=email,
                 role=role,
                 is_active=True,
@@ -89,6 +90,7 @@ def role_required(*allowed_roles: str):
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username:str = payload.get("username")
         email: str = payload.get("sub")
         user_id: int = payload.get("user_id")
         role: str = payload.get("role")
@@ -102,7 +104,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
         
         return UserResponse(
             id=user_id,
-            username=email,  # Adjust based on actual username retrieval
+            username=username,  
             email=email,
             role=role,
             is_active=True,

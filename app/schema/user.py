@@ -75,7 +75,7 @@ class Token(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
-    username: str
+    username: Optional[str] = None
     email: EmailStr
     role: UserRole
     is_active: bool
@@ -90,7 +90,7 @@ class UserResponse(BaseModel):
 
 class UserDashboardResponse(BaseModel):
     id: int
-    username: str
+    username: Optional[str] = None
     email: EmailStr
     role: UserRole
     is_active: bool
@@ -107,7 +107,7 @@ class UserDashboardResponse(BaseModel):
 
 
 class SubAdminResponse(BaseModel):
-    username: str
+    username: Optional[str] = None
     email: str
     password: str
     visibility_level: int

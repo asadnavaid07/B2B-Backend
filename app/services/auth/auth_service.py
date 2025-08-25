@@ -34,6 +34,7 @@ async def login_user(db: AsyncSession, user_login: UserLogin) -> Token:
     expires_delta_access = timedelta(hours=1)
     expires_delta_refresh = timedelta(days=7)
     access_token = create_access_token(
+        username=user.username,
         email=user.email,
         user_id=user.id,
         role=user.role.value,
@@ -44,6 +45,7 @@ async def login_user(db: AsyncSession, user_login: UserLogin) -> Token:
         registration_step= user.registration_step
     )
     refresh_token = create_refresh_token(
+        username=user.username,
         email=user.email,
         user_id=user.id,
         role=user.role.value,
