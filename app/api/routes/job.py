@@ -12,7 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 jobs_router = APIRouter(prefix="/jobs", tags=["jobs"])
-admin_jobs_router = APIRouter(prefix="/admin/jobs", tags=["admin_jobs"])
+
 
 @jobs_router.get("/", response_model=list[JobResponse])
 async def get_jobs(db: AsyncSession = Depends(get_db)):
@@ -25,11 +25,9 @@ async def get_jobs(db: AsyncSession = Depends(get_db)):
         logger.error(f"Error fetching jobs: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch jobs: {str(e)}")
 
-@admin_jobs_router.get("/{id}", response_model=JobFullResponse)
+@jobs_router.get("/{id}", response_model=JobFullResponse)
 async def get_job_details(id: int, current_user: UserResponse = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if current_user.role not in [UserRole.sub_admin, UserRole.super_admin]:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     try:
         result = await db.execute(select(Job).filter(Job.id == id))
         job = result.scalar_one_or_none()

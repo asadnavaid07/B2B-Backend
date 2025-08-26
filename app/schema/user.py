@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr, Field
 from enum import Enum
 from typing import Optional, Dict, List
 from app.models.user import UserRole
+from app.schema.document import DocumentResponse
 
 
 class UserRole(str, Enum):
@@ -104,7 +105,10 @@ class UserDashboardResponse(BaseModel):
 
     class Config:
         orm_mode = True
+        
 
+    class Config:
+        from_attributes = True
 
 class SubAdminResponse(BaseModel):
     username: Optional[str] = None

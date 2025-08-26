@@ -131,3 +131,24 @@ async def get_profile(
     except Exception as e:
         logger.error(f"Error fetching profile for user {current_user.id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {str(e)}")
+    
+
+@user_router.get("/is-registered", status_code=200 )
+async def check_registration_status(
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        result = await db.execute(
+            select(User).filter(User.id == current_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return{
+            "is_registered": user.is_registered
+        }
+    except Exception as e:
+        logger.error(f"Error checking registration status for user {current_user.id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to check registration status: {str(e)}")

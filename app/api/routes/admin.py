@@ -2,7 +2,9 @@ from datetime import datetime
 from fastapi import APIRouter,Depends, HTTPException, logger
 from pydantic import BaseModel
 from sqlalchemy import Select
+from app.models.document import Document
 from app.models.notification import Notification
+from app.schema.document import DocumentResponse
 from app.schema.user import UserDashboardResponse, UserRole,get_super_admin_role,get_sub_admin_role,UserResponse
 from app.core.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -166,6 +168,22 @@ async def get_users(
         result=await db.execute(
             Select(User).filter(User.role not in [UserRole.super_admin, UserRole.sub_admin])
         )
+        users=result.scalars().all()
+        return users
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch users:{str(e)}")
+    
+@admin_router.get("/document-info",response_model=list[DocumentResponse])
+async def get_users(
+    role:UserRole=Depends(get_super_admin_role),
+    db:AsyncSession=Depends(get_db)
+):
+    if role not in [get_super_admin_role(),get_sub_admin_role()]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    try:
+        result=await db.execute(
+            Select(Document) )
         users=result.scalars().all()
         return users
     except Exception as e:
