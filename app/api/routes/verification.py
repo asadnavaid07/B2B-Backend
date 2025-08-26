@@ -21,25 +21,27 @@ def is_retention_period_over(retention_period: str, retention_start_date: dateti
     retention_end = retention_start_date + timedelta(days=months * 30)  # Approximate months
     return current_date >= retention_end
 
+
+
 async def update_partnership_level(user: User, kpi_score: float, db: AsyncSession):
     partnership_levels = [
-        {"level": "Drop Shipping Vendor", "min_kpi": 0, "retention": "None"},
-        {"level": "Consignment Vendor", "min_kpi": 5.5, "retention": "6 months"},
-        {"level": "Export Vendor", "min_kpi": 6.0, "retention": "6 months"},
-        {"level": "Wholesale & Distribution Vendor", "min_kpi": 6.5, "retention": "6 months"},
-        {"level": "Exhibition & Event Organizer Vendor", "min_kpi": 7.0, "retention": "12 months"},
-        {"level": "Auction & Bidding Vendor", "min_kpi": 7.2, "retention": "12 months"},
-        {"level": "White-Label Vendor", "min_kpi": 7.5, "retention": "12 months"},
-        {"level": "Brick & Mortar Space-Sharing Vendor", "min_kpi": 7.8, "retention": "12 months"},
-        {"level": "Knowledge & Design Collaboration Vendor", "min_kpi": 8.0, "retention": "12 months"},
-        {"level": "Storytelling & Media Vendor", "min_kpi": 8.2, "retention": "12 months"},
-        {"level": "Buyer Mentorship Program Vendor", "min_kpi": 8.5, "retention": "12 months"},
-        {"level": "Craft Innovation Patron Vendor", "min_kpi": 8.8, "retention": "12 months"},
-        {"level": "Strategic Investor Vendor", "min_kpi": 9.0, "retention": "12 months"},
-        {"level": "Museum / Institutional Vendor", "min_kpi": 9.2, "retention": "12 months"},
-        {"level": "NGO & Government Collaboration Vendor", "min_kpi": 9.4, "retention": "12 months"},
-        {"level": "Impact Measurement Vendor", "min_kpi": 9.6, "retention": "12 months"}
-    ]
+    {"level": "DROP_SHIPPING", "min_kpi": 0, "retention": "NONE"},
+    {"level": "CONSIGNMENT", "min_kpi": 5.5, "retention": "6 MONTHS"},
+    {"level": "IMPORT_EXPORT", "min_kpi": 6.0, "retention": "6 MONTHS"},
+    {"level": "WHOLESALE", "min_kpi": 6.5, "retention": "6 MONTHS"},
+    {"level": "EXHIBITION", "min_kpi": 7.0, "retention": "12 MONTHS"},
+    {"level": "AUCTION", "min_kpi": 7.2, "retention": "12 MONTHS"},
+    {"level": "WHITE_LABEL", "min_kpi": 7.5, "retention": "12 MONTHS"},
+    {"level": "BRICK_MORTAR", "min_kpi": 7.8, "retention": "12 MONTHS"},
+    {"level": "DESIGN_COLLABORATION", "min_kpi": 8.0, "retention": "12 MONTHS"},
+    {"level": "STORYTELLING", "min_kpi": 8.2, "retention": "12 MONTHS"},
+    {"level": "WAREHOUSE", "min_kpi": 8.5, "retention": "12 MONTHS"},
+    {"level": "PACKAGING", "min_kpi": 8.8, "retention": "12 MONTHS"},
+    {"level": "LOGISTICS", "min_kpi": 9.0, "retention": "12 MONTHS"},
+    {"level": "MUSEUM_INSTITUTIONAL", "min_kpi": 9.2, "retention": "12 MONTHS"},
+    {"level": "NGO_GOVERNMENT", "min_kpi": 9.4, "retention": "12 MONTHS"},
+    {"level": "TECHNOLOGY_PARTNERSHIP", "min_kpi": 9.6, "retention": "12 MONTHS"}
+]
     
     current_level_index = next((i for i, level in enumerate(partnership_levels) if level["level"] == user.partnership_level), 0)
     current_level = partnership_levels[current_level_index]
@@ -144,22 +146,22 @@ async def get_kpi_score(
         await db.refresh(user)
         
         partnership_levels = [
-    {"level": "Drop Shipping Vendor", "min_kpi": 7.0, "retention": "None"},
-    {"level": "Consignment Vendor", "min_kpi": 7.0, "retention": "18 months"},
-    {"level": "Import / Export Vendor", "min_kpi": 8.0, "retention": "6 months"},
-    {"level": "Wholesale & Distribution Vendor", "min_kpi": 7.0, "retention": "3 months"},
-    {"level": "Exhibition & Event Organizer Vendor", "min_kpi": 8.0, "retention": "6 months"},
-    {"level": "Auction & Bidding Vendor", "min_kpi": 8.0, "retention": "6 months"},
-    {"level": "White-Label Vendor", "min_kpi": 9.0, "retention": "12 months"},
-    {"level": "Brick & Mortar Space-Sharing Vendor", "min_kpi": 9.0, "retention": "12 months"},
-    {"level": "Knowledge & Design Collaboration Vendor", "min_kpi": 8.0, "retention": "6 months"},
-    {"level": "Storytelling & Media Vendor", "min_kpi": 7.0, "retention": "6 months"},
-    {"level": "Warehouse Vendor", "min_kpi": 8.0, "retention": "6 months"},
-    {"level": "Packaging Vendor", "min_kpi": 8.0, "retention": "6 months"},
-    {"level": "Logistics Vendor", "min_kpi": 9.0, "retention": "12 months"},
-    {"level": "Museum / Institutional Vendor", "min_kpi": 8.0, "retention": "12 months"},
-    {"level": "NGO & Government Collaboration Vendor", "min_kpi": 8.0, "retention": "12 months"},
-    {"level": "Technology Partnership Vendor", "min_kpi": 9.5, "retention": "24 months"},
+    {"level": "DROP_SHIPPING", "min_kpi": 0, "retention": "NONE"},
+    {"level": "CONSIGNMENT", "min_kpi": 5.5, "retention": "6 MONTHS"},
+    {"level": "IMPORT_EXPORT", "min_kpi": 6.0, "retention": "6 MONTHS"},
+    {"level": "WHOLESALE", "min_kpi": 6.5, "retention": "6 MONTHS"},
+    {"level": "EXHIBITION", "min_kpi": 7.0, "retention": "12 MONTHS"},
+    {"level": "AUCTION", "min_kpi": 7.2, "retention": "12 MONTHS"},
+    {"level": "WHITE_LABEL", "min_kpi": 7.5, "retention": "12 MONTHS"},
+    {"level": "BRICK_MORTAR", "min_kpi": 7.8, "retention": "12 MONTHS"},
+    {"level": "DESIGN_COLLABORATION", "min_kpi": 8.0, "retention": "12 MONTHS"},
+    {"level": "STORYTELLING", "min_kpi": 8.2, "retention": "12 MONTHS"},
+    {"level": "WAREHOUSE", "min_kpi": 8.5, "retention": "12 MONTHS"},
+    {"level": "PACKAGING", "min_kpi": 8.8, "retention": "12 MONTHS"},
+    {"level": "LOGISTICS", "min_kpi": 9.0, "retention": "12 MONTHS"},
+    {"level": "MUSEUM_INSTITUTIONAL", "min_kpi": 9.2, "retention": "12 MONTHS"},
+    {"level": "NGO_GOVERNMENT", "min_kpi": 9.4, "retention": "12 MONTHS"},
+    {"level": "TECHNOLOGY_PARTNERSHIP", "min_kpi": 9.6, "retention": "12 MONTHS"}
 ]
         
         current_level = next((level for level in partnership_levels if level["level"] == user.partnership_level), partnership_levels[0])

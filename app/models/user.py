@@ -30,7 +30,7 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     google_id = Column(String, unique=True, nullable=True) 
     kpi_score = Column(Float, default=0.0)
-    partnership_level = Column(String, default="Drop Shipping Vendor")
+    partnership_level = Column(String, default="DROP_SHIPPING")
     retention_period = Column(String, default="None")
     retention_start_date = Column(DateTime, nullable=True) 
     is_registered = Column(Enum(RegistrationStatus), nullable=False, default=RegistrationStatus.PENDING)
