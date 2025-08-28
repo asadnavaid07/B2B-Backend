@@ -11,6 +11,9 @@ import os
 import pytz
 import uuid
 
+from app.schema.user import UserResponse
+from app.services.auth.jwt import get_current_user
+
 logger = logging.getLogger(__name__)
 appointment_router = APIRouter(prefix="/appointments", tags=["appointments"])
 
@@ -229,7 +232,8 @@ async def create_appointment(
     email: str = Form(...),
     phone_number: str = Form(...),
     file: Optional[UploadFile] = File(None),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[UserResponse] = Depends(get_current_user)
 ):
 
 
@@ -321,6 +325,7 @@ async def create_appointment(
 
     try:
         new_appointment = Appointment(
+            user_id=current_user.id if current_user else None, 
             user_type=user_type.upper(),
             appointment_type=appointment_type.upper(),
             virtual_platform=virtual_platform.upper() if virtual_platform else None,
@@ -385,4 +390,23 @@ async def get_appointment_by_day(
         }
     except Exception as e:
         logger.error(f"Error fetching appointments for date {date}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch appointments: {str(e)}")
+    
+
+@appointment_router.get("/user-appointement", response_model=List[AppointmentResponse])
+async def get_appointments(
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+
+):
+    try:
+        result = await db.execute(
+            select(Appointment).filter(Appointment.user_id==current_user.id).order_by(Appointment.appointment_date, Appointment.appointment_time)
+        )
+        appointments = result.scalars().all()
+        if not appointments:
+            return []
+        return [AppointmentResponse.from_orm(appointment) for appointment in appointments]
+    except Exception as e:
+        logger.error(f"Error fetching appointments: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch appointments: {str(e)}")

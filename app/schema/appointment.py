@@ -6,6 +6,7 @@ from app.utils.appointment import get_available_dates, TIME_SLOTS_CONFIG
 
 
 class AppointmentCreate(BaseModel):
+    user_id: Optional[int] = None
     user_type: str
     appointment_type: str
     virtual_platform: Optional[str] = None

@@ -8,6 +8,7 @@ from app.api.routes.appointments import appointment_router
 from app.api.routes.admin import admin_router
 from app.api.routes.user import user_router
 from app.api.routes.job import jobs_router
+from app.api.routes.notification import notification_router
 
 router = APIRouter()
 router.include_router(auth_router, tags=["auth"])
@@ -19,6 +20,7 @@ router.include_router(verification_router, tags=["verification"])
 router.include_router(appointment_router, tags=["appointments"])
 router.include_router(user_router, tags=["user"])
 router.include_router(jobs_router, tags=["jobs"])
+router.include_router(notification_router, tags=["notifications"])
 
 
 

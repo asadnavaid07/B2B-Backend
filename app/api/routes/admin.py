@@ -1,10 +1,12 @@
 from datetime import datetime
+from select import select
 from fastapi import APIRouter,Depends, HTTPException, logger
 from pydantic import BaseModel
 from sqlalchemy import Select
 from app.models.document import Document
 from app.models.notification import Notification
 from app.schema.document import DocumentResponse
+from app.schema.notification import NotificationCreate, NotificationResponse
 from app.schema.user import UserDashboardResponse, UserRole,get_super_admin_role,get_sub_admin_role,UserResponse
 from app.core.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -255,6 +257,57 @@ async def delete_sub_admin(
         await db.rollback()
         logger.error(f"Error deleting sub-admin {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete sub-admin: {str(e)}")
+    
+
+
+
+
+@admin_router.post("/notifications", status_code=200, response_model=NotificationResponse)
+async def create_notification(
+    notification: NotificationCreate,
+    role:UserRole=Depends(get_super_admin_role),
+    current_user:UserResponse=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if role!=get_super_admin_role():
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    try:
+        new_notification = Notification(
+            admin_id=current_user.id,
+            message=notification.message,
+            target_type=notification.target_type,
+            visibility=notification.visibility
+        )
+        db.add(new_notification)
+        await db.commit()
+        await db.refresh(new_notification)
+        logger.info(f"Notification created by admin_id={current_user.id}: {notification.message}")
+        return new_notification
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error creating notification: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create notification: {str(e)}")
+
+# @admin_router.get("/notifications", response_model=list[NotificationResponse])
+# async def get_admin_notifications(
+#     role:UserRole=Depends(get_super_admin_role),
+#     current_user:UserResponse=Depends(get_current_user),
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     if role!=get_super_admin_role():
+#         raise HTTPException(status_code=403, detail="Super admin access required")
+    
+#     try:
+#         result = await db.execute(
+#             select(Notification).filter(Notification.admin_id == current_user.id)
+#         )
+#         notifications = result.scalars().all()
+#         logger.info(f"Fetched {len(notifications)} notifications for admin_id={current_user.id}")
+#         return notifications
+#     except Exception as e:
+#         logger.error(f"Error fetching notifications for admin_id={current_user.id}: {str(e)}")
+#         raise HTTPException(status_code=500, detail=f"Failed to fetch notifications: {str(e)}")
 
     
 
