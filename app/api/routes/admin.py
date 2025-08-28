@@ -265,16 +265,16 @@ async def delete_sub_admin(
 @admin_router.post("/notifications", status_code=200, response_model=NotificationResponse)
 async def create_notification(
     notification: NotificationCreate,
-    role:UserRole=Depends(get_super_admin_role),
     current_user:UserResponse=Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    if role!=get_super_admin_role():
-        raise HTTPException(status_code=403, detail="Super admin access required")
+    if current_user.role not in [get_super_admin_role(), get_sub_admin_role()]:
+        raise HTTPException(status_code=403, detail="Admin access required")
     
     try:
         new_notification = Notification(
             admin_id=current_user.id,
+            user_id=notification.user_id if notification.user_id else None,
             message=notification.message,
             target_type=notification.target_type,
             visibility=notification.visibility

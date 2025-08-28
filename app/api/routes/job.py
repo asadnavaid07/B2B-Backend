@@ -26,7 +26,7 @@ async def get_jobs(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to fetch jobs: {str(e)}")
 
 @jobs_router.get("/{id}", response_model=JobFullResponse)
-async def get_job_details(id: int, current_user: UserResponse = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_job_details(id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         result = await db.execute(select(Job).filter(Job.id == id))

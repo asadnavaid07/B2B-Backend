@@ -5,7 +5,6 @@ from enum import Enum
 
 class NotificationTargetType(str, Enum):
     ALL_USERS = "ALL_USERS"
-    SUB_ADMINS = "SUB_ADMINS"
     BUYERS = "BUYERS"
     VENDORS = "VENDORS"
 
@@ -14,6 +13,7 @@ class Notification(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, nullable=True)
     message = Column(String(500), nullable=False)
     target_type = Column(SQLEnum(NotificationTargetType), nullable=False)
     visibility = Column(Boolean, default=True, nullable=False)
