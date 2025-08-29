@@ -16,7 +16,7 @@ class NotificationResponse(BaseModel):
     message: str
     target_type: str
     visibility: bool
-    created_at: Optional[datetime] = None
+    created_at: datetime 
 
     class Config:
         from_attributes = True

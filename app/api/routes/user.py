@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.core.database import get_db
 from app.models.user import User
-from app.models.registration import RegistrationInfo
+from app.models.registration import RegistrationInfo, RegistrationProduct
 from app.services.auth.jwt import get_current_user
 from app.schema.user import UserDashboardResponse, UserResponse
 from pydantic import BaseModel
@@ -152,3 +152,24 @@ async def check_registration_status(
     except Exception as e:
         logger.error(f"Error checking registration status for user {current_user.id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to check registration status: {str(e)}")
+    
+
+@user_router.get("/user-product_data/{user_id}", status_code=200)
+async def get_user_product_data(
+    user_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        result = await db.execute(
+            select(RegistrationProduct).filter(RegistrationProduct.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return{
+            "product_data": user.product_data
+        }
+    except Exception as e:
+        logger.error(f"Error fetching product data for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch product data: {str(e)}")

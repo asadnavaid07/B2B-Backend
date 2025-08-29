@@ -20,7 +20,9 @@ async def get_notifications(
         # Define role-to-target mapping
         role_to_targets = {
             UserRole.buyer: [NotificationTargetType.ALL_USERS, NotificationTargetType.BUYERS],
-            UserRole.vendor: [NotificationTargetType.ALL_USERS, NotificationTargetType.VENDORS]
+            UserRole.vendor: [NotificationTargetType.ALL_USERS, NotificationTargetType.VENDORS],
+            UserRole.super_admin: [NotificationTargetType.ALL_ADMINS],
+            UserRole.sub_admin: [NotificationTargetType.ALL_ADMINS],
         }
         
         target_types = role_to_targets.get(current_user.role, [NotificationTargetType.ALL_USERS])

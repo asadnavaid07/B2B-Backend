@@ -23,3 +23,11 @@ class DocumentResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+class DocumentReuploadRequest(BaseModel):
+    document_id: int
+    file_url: str
+
+class DocumentApproveRequest(BaseModel):
+    document_id: int
+    approve: bool

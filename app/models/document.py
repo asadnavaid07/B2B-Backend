@@ -12,6 +12,7 @@ class Document(Base):
     document_type = Column(String(50), nullable=False)
     file_path = Column(String(255), nullable=False)
     file_name = Column(String(255), nullable=False)
+    file_url = Column(String(500), nullable=True)
     ai_verification_status = Column(Enum(VerificationStatus), default=VerificationStatus.PENDING)
     ai_kpi_score = Column(Integer, default=0)
     ai_remarks = Column(String(500), nullable=True)

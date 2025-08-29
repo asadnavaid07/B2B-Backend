@@ -2,16 +2,16 @@ from datetime import datetime
 from select import select
 from fastapi import APIRouter,Depends, HTTPException, logger
 from pydantic import BaseModel
-from sqlalchemy import Select
+from sqlalchemy import Select, func
 from app.models.document import Document
-from app.models.notification import Notification
-from app.schema.document import DocumentResponse
+from app.models.notification import Notification, NotificationTargetType
+from app.schema.document import DocumentApproveRequest, DocumentResponse, VerificationStatus
 from app.schema.notification import NotificationCreate, NotificationResponse
 from app.schema.user import UserDashboardResponse, UserRole,get_super_admin_role,get_sub_admin_role,UserResponse
 from app.core.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import RegistrationStatus, User
-from app.models.registration import RegistrationInfo
+from app.models.registration import RegistrationInfo, RegistrationProduct
 from app.services.auth.jwt import get_current_user
 from app.schema.category import PersonalInfoDashboardResponse
 import logging
@@ -289,25 +289,67 @@ async def create_notification(
         logger.error(f"Error creating notification: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create notification: {str(e)}")
 
-# @admin_router.get("/notifications", response_model=list[NotificationResponse])
-# async def get_admin_notifications(
-#     role:UserRole=Depends(get_super_admin_role),
-#     current_user:UserResponse=Depends(get_current_user),
-#     db: AsyncSession = Depends(get_db)
-# ):
-#     if role!=get_super_admin_role():
-#         raise HTTPException(status_code=403, detail="Super admin access required")
-    
-#     try:
-#         result = await db.execute(
-#             select(Notification).filter(Notification.admin_id == current_user.id)
-#         )
-#         notifications = result.scalars().all()
-#         logger.info(f"Fetched {len(notifications)} notifications for admin_id={current_user.id}")
-#         return notifications
-#     except Exception as e:
-#         logger.error(f"Error fetching notifications for admin_id={current_user.id}: {str(e)}")
-#         raise HTTPException(status_code=500, detail=f"Failed to fetch notifications: {str(e)}")
 
+@admin_router.post("/documents/approve", response_model=DocumentResponse)
+async def approve_document(
+    request: DocumentApproveRequest,
+    role: UserRole = Depends(get_super_admin_role),
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+
+        result = await db.execute(
+            Select(Document).where(Document.id == request.document_id)
+        )
+        document = result.scalar_one_or_none()
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        document.ai_verification_status = VerificationStatus.PASS if request.approve else VerificationStatus.FAIL
+        document.updated_at = func.now()
+        
+        # Notify user
+        user_notification = Notification(
+            admin_id=current_user.id,
+            user_id=document.user_id,
+            message=f"Your document {document.id} ({document.document_type}) has been {'approved' if request.approve else 'rejected'}.",
+            target_type=NotificationTargetType.ALL_USERS,  
+            visibility=True
+        )
+        db.add(user_notification)
+        
+        db.add(document)
+        await db.commit()
+        await db.refresh(document)
+        
+        logger.info(f"Document {document.id} {'approved' if request.approve else 'rejected'} by admin_id={current_user.id}")
+        return document
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error approving document {request.document_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to approve document: {str(e)}")
     
 
+
+@admin_router.get("/user-product_data/{user_id}", status_code=200)
+async def get_user_product_data(
+    user_id: int,
+    current_user: UserResponse = Depends(get_current_user),
+     role: UserRole = Depends(get_super_admin_role),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        result = await db.execute(
+            Select(RegistrationProduct).filter(RegistrationProduct.user_id == user_id)
+        )
+        data = result.scalar_one_or_none()
+        if not data:
+            raise HTTPException(status_code=404, detail="User Data not found")
+        
+        return{
+            "product_data": data.product_data
+        }
+    except Exception as e:
+        logger.error(f"Error fetching product data for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch product data: {str(e)}")
