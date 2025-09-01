@@ -218,6 +218,7 @@ async def get_appointments(
 @appointment_router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_appointment(
     user_type: str = Form(...),
+    current_user: Optional[UserResponse] = Depends(get_current_user),
     appointment_type: str = Form(...),
     virtual_platform: Optional[str] = Form(None),
     office_location: Optional[str] = Form(None),
@@ -233,7 +234,6 @@ async def create_appointment(
     phone_number: str = Form(...),
     file: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[UserResponse] = Depends(get_current_user)
 ):
 
 
