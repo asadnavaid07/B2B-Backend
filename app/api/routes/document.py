@@ -199,6 +199,7 @@ async def reupload_document(
     document_id: int = Form(...),
     document_type: str = Form(...),
     file: UploadFile = File(...),
+    file_url: str = Form(None),
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -243,7 +244,7 @@ async def reupload_document(
         
         # Update document
         document.file_path = file_path
-        document.file_url = None
+        document.file_url = file_url
         document.ai_verification_status = VerificationStatus.PENDING
         document.ai_remarks = "Awaiting AI verification"
         document.ai_kpi_score = 0.0

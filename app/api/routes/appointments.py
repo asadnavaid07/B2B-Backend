@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Form, UploadFile, File, Query
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.core.database import get_db
@@ -215,10 +216,29 @@ async def get_appointments(
 
 
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+# Custom dependency to bypass authentication for guest users
+async def get_current_user_optional(
+    request: Request,
+    user_type: str = Form(...),
+    token: Optional[str] = Depends(oauth2_scheme)
+):
+    user_type = user_type.lower()
+    if user_type == "guest":
+        return None  # No authentication required for guests
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await get_current_user(token)  # Use original get_current_user for non-guests
+
 @appointment_router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_appointment(
     user_type: str = Form(...),
-    current_user: Optional[UserResponse] = Depends(get_current_user),
+    current_user: Optional[UserResponse] = Depends(get_current_user_optional),
     appointment_type: str = Form(...),
     virtual_platform: Optional[str] = Form(None),
     office_location: Optional[str] = Form(None),
@@ -235,7 +255,33 @@ async def create_appointment(
     file: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
 ):
+    # Normalize inputs to lowercase
+    user_type = user_type.lower()
+    appointment_type = appointment_type.lower()
 
+    # Validate user_type
+    valid_user_types = ["buyer", "vendor", "guest"]
+    if user_type not in valid_user_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid user_type. Must be one of: {valid_user_types}"
+        )
+
+    # Validate appointment_type
+    valid_appointment_types = ["virtual", "offline"]
+    if appointment_type not in valid_appointment_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid appointment_type. Must be one of: {valid_appointment_types}"
+        )
+
+    # Validate time_zone
+    valid_time_zones = ["EST", "IST"]
+    if time_zone not in valid_time_zones:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid time_zone. Must be one of: {valid_time_zones}"
+        )
 
     # Parse and validate date
     try:
@@ -256,17 +302,25 @@ async def create_appointment(
 
     # Validate time slot
     if user_type == "guest":
-     region = office_location or "USA"   # default fallback region
-     if region not in TIME_SLOTS_CONFIG[user_type]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid or missing region '{region}' for guest"
-        )
-     config = TIME_SLOTS_CONFIG[user_type][region][appointment_type]
+        region = office_location or "USA"  # default fallback region
+        if region not in TIME_SLOTS_CONFIG[user_type]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid or missing region '{region}' for guest. Must be one of: {list(TIME_SLOTS_CONFIG[user_type].keys())}"
+            )
+        config = TIME_SLOTS_CONFIG[user_type][region][appointment_type]
     else:
-     config = TIME_SLOTS_CONFIG[user_type][appointment_type]
+        config = TIME_SLOTS_CONFIG[user_type][appointment_type]
+
+    # Validate office_location for offline appointments
     if appointment_type == "offline":
-        config = config[office_location or "USA Office – HQ"]
+        valid_locations = list(TIME_SLOTS_CONFIG[user_type]["offline"].keys())
+        if office_location not in valid_locations:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid office_location. Must be one of: {valid_locations}"
+            )
+        config = config[office_location]
     else:
         office_location = None
 
@@ -278,6 +332,7 @@ async def create_appointment(
         valid_slots = [t.strftime("%H:%M") for t in config["friday_times"]]
     else:
         valid_slots = [t.strftime("%H:%M") for t in config["weekday_times"]]
+    
     if appointment_time not in valid_slots:
         raise HTTPException(status_code=400, detail=f"Invalid appointment time. Available times: {valid_slots}")
 
@@ -325,9 +380,9 @@ async def create_appointment(
 
     try:
         new_appointment = Appointment(
-            user_id=current_user.id if current_user else None, 
-            user_type=user_type.upper(),
-            appointment_type=appointment_type.upper(),
+            user_id=current_user.id if current_user else None,
+            user_type=user_type.upper(),  # Store as uppercase in DB
+            appointment_type=appointment_type.upper(),  # Store as uppercase in DB
             virtual_platform=virtual_platform.upper() if virtual_platform else None,
             office_location=office_location,
             appointment_date=parsed_date,
@@ -351,9 +406,8 @@ async def create_appointment(
         return {"message": "Appointment created successfully", "appointment_id": new_appointment.id}
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error creating appointment :{str(e)}")
+        logger.error(f"Error creating appointment: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create appointment: {str(e)}")
-    
 
 @appointment_router.get("/getAppointmentByDay", response_model=AppointmentByDayResponse)
 async def get_appointment_by_day(
