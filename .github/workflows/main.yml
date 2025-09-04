@@ -21,6 +21,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd /home/deployerops/coding/projects/b2b/b2b-backend
+            python3 -m venv venv
             source venv/bin/activate
             pip install -r requirements.txt
             pm2 restart b2b-backend-instance-1
