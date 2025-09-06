@@ -18,8 +18,6 @@ verification_router = APIRouter(prefix="/verification", tags=["verification"])
 
 
 
-
-
 @verification_router.get("/status")
 async def get_verification_status(
     current_user: UserResponse = Depends(get_current_user),
@@ -124,66 +122,6 @@ async def get_kpi_score(
         raise HTTPException(status_code=500, detail=f"Failed to calculate KPI score: {str(e)}")
 
 
-@verification_router.post("/update-partnership")
-async def update_partnership(
-    current_user: UserResponse = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    logger.debug(f"Checking partnership update for {current_user.email}")
-    try:
-        # Get user
-        result = await db.execute(
-            select(User).filter(User.id == current_user.id)
-        )
-        user = result.scalar_one_or_none()
-        if not user:
-            logger.error(f"User not found: {current_user.email}")
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Get verified documents
-        result = await db.execute(
-            select(Document).filter(
-                Document.user_id == current_user.id,
-                Document.ai_verification_status == VerificationStatus.PASS
-            )
-        )
-        documents = result.scalars().all()
-        
-        # Calculate KPI score
-        kpi_score = 0
-        doc_count = len(documents)
-        if doc_count > 0:
-            kpi_score = sum(doc.ai_kpi_score for doc in documents) / doc_count
-            kpi_score = round(min(kpi_score, 10), 2)
-        
-        # Check if retention period is over
-        partnership_updated = False
-        if user.retention_start_date and is_retention_period_over(user.retention_period, user.retention_start_date, datetime.utcnow()):
-            partnership_updated = await update_partnership_level(user, kpi_score, db)
-        
-        if partnership_updated:
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
-            logger.info(f"Partnership updated for {current_user.email}: "
-                       f"new_level={user.partnership_level}, retention_period={user.retention_period}")
-            return {
-                "message": f"Partnership level updated to {user.partnership_level}",
-                "kpi_score": kpi_score,
-                "partnership_level": user.partnership_level,
-                "retention_period": user.retention_period
-            }
-        else:
-            return {
-                "message": "No partnership update required or retention period not yet over",
-                "kpi_score": kpi_score,
-                "partnership_level": user.partnership_level,
-                "retention_period": user.retention_period
-            }
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error updating partnership for {current_user.email}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to update partnership: {str(e)}")
 
 @verification_router.get("/notifications")
 async def get_notifications(
@@ -352,78 +290,30 @@ async def get_kpi_score(
         logger.error(f"Error calculating KPI score for {current_user.email}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to calculate KPI score: {str(e)}")
 
-@verification_router.post("/update-partnership", response_model=dict)
+@verification_router.post("/update-partnership", status_code=200)
 async def update_partnership(
+    partnership_level: PartnershipLevel,
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    logger.debug(f"Checking partnership update for {current_user.email}")
-    try:
-        # Get user
-        result = await db.execute(
-            select(User).filter(User.id == current_user.id)
-        )
-        user = result.scalar_one_or_none()
-        if not user:
-            logger.error(f"User not found: {current_user.email}")
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Get verified documents
-        result = await db.execute(
-            select(Document).filter(
-                Document.user_id == current_user.id,
-                Document.ai_verification_status == VerificationStatus.PASS
-            )
-        )
-        documents = result.scalars().all()
-        
-        # Calculate KPI score
-        kpi_score = 0.0
-        doc_count = len(documents)
-        if doc_count > 0:
-            kpi_score = sum(doc.ai_kpi_score for doc in documents) / doc_count
-            kpi_score = round(min(kpi_score, 10), 2)
-        
-        # Check if retention period is over
-        partnership_updated = False
-        if user.retention_start_date:
-            partnership_updated = await update_partnership_level(user, kpi_score, db)
-        
-        if partnership_updated:
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
-            logger.info(f"Partnership updated for {current_user.email}: "
-                       f"new_level={user.partnership_level}, retention_period={user.retention_period}")
-            return {
-                "message": f"Partnership level updated to {user.partnership_level.value}",
-                "kpi_score": kpi_score,
-                "partnership_level": user.partnership_level.value,
-                "retention_period": user.retention_period,
-                "retention_expiration": get_retention_expiration(user.retention_period, user.retention_start_date).isoformat() if user.retention_start_date else None
-            }
-        else:
-            # Calculate retention expiration
-            retention_expiration = get_retention_expiration(user.retention_period, user.retention_start_date)
-            is_retention_expired = retention_expiration and datetime.utcnow() >= retention_expiration if retention_expiration else False
-            
-            # Get available partnerships
-            available_partnerships = get_available_partnerships(kpi_score, user.partnership_level, user.retention_period, user.retention_start_date)
-            
-            return {
-                "message": "No partnership update required or retention period not yet over",
-                "kpi_score": kpi_score,
-                "partnership_level": user.partnership_level.value,
-                "retention_period": user.retention_period,
-                "retention_expiration": retention_expiration.isoformat() if retention_expiration else None,
-                "is_retention_expired": is_retention_expired,
-                "available_partnerships": [p.value for p in available_partnerships]
-            }
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error updating partnership for {current_user.email}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to update partnership: {str(e)}")
 
+    result = await db.execute(select(User).filter(User.id == current_user.id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.partnership_level = partnership_level.value
+    db.add(user)            
+    await db.commit()      
+    await db.refresh(user)  
+
+    return {
+        "message": "Partnership level updated successfully",
+        "partnership_level": user.partnership_level
+    }
+
+
+    
 
 
 @verification_router.get("/notifications", response_model=List[dict])

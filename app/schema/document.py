@@ -18,6 +18,7 @@ class DocumentResponse(BaseModel):
     user_id: int
     document_type: str
     ai_verification_status: VerificationStatus
+    file_url:Optional[str]
 
 
     class Config:

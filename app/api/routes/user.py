@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.core.database import get_db
 from app.models.user import User
-from app.models.registration import RegistrationInfo, RegistrationProduct
+from app.models.registration import RegistrationInfo, RegistrationLevel, RegistrationProduct
 from app.services.auth.jwt import get_current_user
-from app.schema.user import UserDashboardResponse, UserResponse
+from app.schema.user import UserDashboardResponse, UserResponse, UserRole, get_super_admin_role
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
@@ -173,3 +174,66 @@ async def get_user_product_data(
     except Exception as e:
         logger.error(f"Error fetching product data for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch product data: {str(e)}")
+
+
+@user_router.post("/user-lateral", status_code=200)
+async def mark_user_as_lateral(
+    is_lateral: bool,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+
+    try:
+        result = await db.execute(
+            Select(User).filter(User.id == current_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user.is_lateral = True
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        
+        logger.info(f"User {user.email} marked as {'lateral' if is_lateral else 'non-lateral'} by admin_id={current_user.id}")
+        return {
+            "message": f"User marked as {'lateral' if is_lateral else 'non-lateral'} successfully",
+            "user_id": user.id,
+            "email": user.email,
+            "is_lateral": user.is_lateral
+        }
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error marking user as lateral: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to mark user as lateral: {str(e)}")
+    
+from fastapi import HTTPException
+
+@user_router.get("/registration-selected", status_code=200)
+async def registration_selected(
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        result = await db.execute(
+            select(RegistrationLevel).filter(RegistrationLevel.user_id == current_user.id)
+        )
+        levels = result.scalars().all()  
+        if not levels:
+            raise HTTPException(status_code=404, detail="No registration levels found for this user")
+
+        return {
+            "registration_selected": [level.level for level in levels]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error fetching registration levels for user {current_user.id}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch registration info"
+        )

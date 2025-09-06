@@ -306,18 +306,6 @@ async def confirm_agreement(
         raise HTTPException(status_code=400, detail="Agreement must be signed")
 
     try:
-        # Check mandatory documents
-        result = await db.execute(
-            select(Document.document_type).filter(Document.user_id == current_user.id)
-        )
-        uploaded_types = {doc.document_type for doc in result.scalars().all()}
-        mandatory_docs = {"business_registration", "adhaar_card"}
-        missing_docs = mandatory_docs - uploaded_types
-        if missing_docs:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Missing mandatory documents: {missing_docs}"
-            )
 
         new_agreement = RegistrationAgreement(
             user_id=current_user.id,
@@ -363,6 +351,33 @@ async def confirm_agreement(
         raise HTTPException(status_code=500, detail=f"Failed to store agreement: {str(e)}")
     
 
+@registration_router.put("/agreement-url")
+async def update_agreement_url(
+    agreement_url:str,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    email = current_user.email.lower().strip()
+    logger.debug(f"Updating agreement URL for {email}")
+
+    result = await db.execute(
+        select(RegistrationAgreement).filter(RegistrationAgreement.user_id == current_user.id)
+    )
+    existing_agreement = result.scalars().first()
+
+    if not existing_agreement:
+        raise HTTPException(status_code=404, detail="No existing agreement found to update")
+
+    try:
+        existing_agreement.agreement_url = agreement_url
+        db.add(existing_agreement)
+        await db.commit()
+        logger.info(f"Agreement URL updated successfully for {email}")
+        return {"message": "Agreement URL updated successfully"}
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error updating agreement URL for {email}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update agreement URL")
 
 @registration_router.get("/registration_info",response_model=PersonalInfo)
 async def get_registration_info(
@@ -379,4 +394,20 @@ async def get_registration_info(
         logger.error(f"Error fetching registration info for {current_user.email}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch registration info: {str(e)}")
     
+
+@registration_router.get("/agreement", status_code=200)
+async def get_agreement(
+        current_user:UserResponse=Depends(get_current_user),
+        db:AsyncSession=Depends(get_db)):
+    try:
+        result=await db.execute(Select(RegistrationAgreement).filter(RegistrationAgreement.user_id==current_user.id))
+        agreement = result.scalars().first()
+        if not agreement:
+            raise HTTPException(status_code=404, detail="Agreement not found")  
+        
+        return agreement.agreement_url
+    except Exception as e:
+        logger.error(f"Error fetching agreement for {current_user.email}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch agreement: {str(e)}")
     
+
