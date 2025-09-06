@@ -114,7 +114,6 @@ TIME_SLOTS_CONFIG = {
         }
     },
     "guest": {
-        "USA": {
             "virtual": {
                 "weekday_times": [
                     time(9, 0), time(9, 30), time(10, 0), time(10, 30),
@@ -141,23 +140,7 @@ TIME_SLOTS_CONFIG = {
                         time(15, 0), time(15, 30)
                     ],
                     "time_zone": "EST"
-                }
-            }
-        },
-        "India": {
-            "virtual": {
-                "weekday_times": [
-                    time(13, 0), time(13, 30), time(14, 0), time(14, 30)
-                ],
-                "friday_times": [],
-                "saturday_times": [
-                    time(10, 0), time(10, 30), time(11, 0), time(11, 30),
-                    time(12, 0), time(12, 30), time(13, 0), time(13, 30),
-                    time(14, 0), time(14, 30), time(15, 0), time(15, 30)
-                ],
-                "time_zone": "IST"
-            },
-            "offline": {
+                },
                 "Kashmir India": {
                     "weekday_times": [
                         time(10, 0), time(10, 30), time(11, 0), time(11, 30),
@@ -177,7 +160,6 @@ TIME_SLOTS_CONFIG = {
             }
         }
     }
-}
 
 def get_available_dates(start_date: date) -> List[date]:
     from datetime import date, timedelta
@@ -225,15 +207,15 @@ async def get_current_user_optional(
     token: Optional[str] = Depends(oauth2_scheme)
 ):
     user_type = user_type.lower()
-    if user_type == "guest":
-        return None  # No authentication required for guests
+    if user_type in ["buyer","vendor","guest"]:
+        return None  
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return await get_current_user(token)  # Use original get_current_user for non-guests
+    return await get_current_user(token)  
 
 @appointment_router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_appointment(
@@ -272,7 +254,7 @@ async def create_appointment(
     if appointment_type not in valid_appointment_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid appointment_type. Must be one of: {valid_appointment_types}"
+            detail=f"Invalid appointment_type"
         )
 
     # Validate time_zone
@@ -298,17 +280,8 @@ async def create_appointment(
     # Validate date in available range
     available_dates = get_available_dates(date(2025, 8, 14))
     if parsed_date not in available_dates:
-        raise HTTPException(status_code=400, detail=f"Invalid date. Available dates: {available_dates}")
+        raise HTTPException(status_code=400, detail=f"Invalid date")
 
-    # Validate time slot
-    if user_type == "guest":
-        region = office_location or "USA"  # default fallback region
-        if region not in TIME_SLOTS_CONFIG[user_type]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid or missing region '{region}' for guest. Must be one of: {list(TIME_SLOTS_CONFIG[user_type].keys())}"
-            )
-        config = TIME_SLOTS_CONFIG[user_type][region][appointment_type]
     else:
         config = TIME_SLOTS_CONFIG[user_type][appointment_type]
 

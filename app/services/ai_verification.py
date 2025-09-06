@@ -242,7 +242,6 @@ async def analyze_document_advanced(doc_id: int, file_path: str, document_type: 
         doc.ai_verification_status = VerificationStatus[mock_ai_response["status"]]
         doc.ai_remarks = mock_ai_response["remarks"]
         doc.kpi_details = mock_ai_response["kpi_details"]
-        doc.extracted_data = mock_ai_response["extracted_data"]
         doc.ai_kpi_score = sum(sum(category.values()) for category in doc.kpi_details.values()) if doc.kpi_details else 0.0
         
         db.add(doc)

@@ -62,23 +62,24 @@ async def process_payment(email: str, amount: float) -> bool:
 
 # Partnership Level Requirements
 LEVEL_REQUIREMENTS = {
-    PartnershipLevel.DROP_SHIPPING: {"retention_months": 0, "kpi_threshold": 7.0},
-    PartnershipLevel.CONSIGNMENT: {"retention_months": 18, "kpi_threshold": 7.0},
-    PartnershipLevel.IMPORT_EXPORT: {"retention_months": 6, "kpi_threshold": 8.0},
-    PartnershipLevel.WHOLESALE: {"retention_months": 3, "kpi_threshold": 7.0},
-    PartnershipLevel.EXHIBITION: {"retention_months": 6, "kpi_threshold": 8.0},
-    PartnershipLevel.AUCTION: {"retention_months": 6, "kpi_threshold": 8.0},
-    PartnershipLevel.WHITE_LABEL: {"retention_months": 12, "kpi_threshold": 9.0},
-    PartnershipLevel.BRICK_MORTAR: {"retention_months": 12, "kpi_threshold": 9.0},
-    PartnershipLevel.DESIGN_COLLABORATION: {"retention_months": 6, "kpi_threshold": 8.0},
-    PartnershipLevel.STORYTELLING: {"retention_months": 6, "kpi_threshold": 7.0},
-    PartnershipLevel.WAREHOUSE: {"retention_months": 6, "kpi_threshold": 8.0},
-    PartnershipLevel.PACKAGING: {"retention_months": 6, "kpi_threshold": 8.0},
-    PartnershipLevel.LOGISTICS: {"retention_months": 12, "kpi_threshold": 9.0},
-    PartnershipLevel.MUSEUM_INSTITUTIONAL: {"retention_months": 12, "kpi_threshold": 8.0},
-    PartnershipLevel.NGO_GOVERNMENT: {"retention_months": 12, "kpi_threshold": 8.0},
-    PartnershipLevel.TECHNOLOGY_PARTNERSHIP: {"retention_months": 24, "kpi_threshold": 9.5},
+    PartnershipLevel.DROP_SHIPPING: {"retention_months": 0, "kpi_threshold": 0.0},
+    PartnershipLevel.CONSIGNMENT: {"retention_months": 12, "kpi_threshold": 6.0},
+    PartnershipLevel.WHOLESALE: {"retention_months": 4, "kpi_threshold": 6.5},
+    PartnershipLevel.IMPORT_EXPORT: {"retention_months": 4, "kpi_threshold": 7.0},
+    PartnershipLevel.EXHIBITION: {"retention_months": 4, "kpi_threshold": 7.0},
+    PartnershipLevel.AUCTION: {"retention_months": 4, "kpi_threshold": 7.5},
+    PartnershipLevel.WHITE_LABEL: {"retention_months": 4, "kpi_threshold": 8.0},
+    PartnershipLevel.BRICK_MORTRAR: {"retention_months": 4, "kpi_threshold": 8.0},
+    PartnershipLevel.DESIGN_COLLABORATION: {"retention_months": 4, "kpi_threshold": 8.0},
+    PartnershipLevel.STORYTELLING: {"retention_months": 4, "kpi_threshold": 8.5},
+    PartnershipLevel.WAREHOUSE: {"retention_months": 4, "kpi_threshold": 8.5},
+    PartnershipLevel.PACKAGING: {"retention_months": 18, "kpi_threshold": 8.0},
+    PartnershipLevel.LOGISTICS: {"retention_months": 12, "kpi_threshold": 0.0}, 
+    PartnershipLevel.MUSEUM_INSTITUTIONAL: {"retention_months": 0, "kpi_threshold": 0.0},
+    PartnershipLevel.NGO_GOVERNMENT: {"retention_months": 0, "kpi_threshold": 0.0},
+    PartnershipLevel.TECHNOLOGY_PARTNERSHIP: {"retention_months": 0, "kpi_threshold": 0.0},
 }
+
 
 # Routes
 @registration_router.post("/level")

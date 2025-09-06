@@ -24,8 +24,8 @@ class User(Base):
     password_hash = Column(String, nullable=True)
     role = Column(Enum(UserRole), nullable=False)
     is_active = Column(Boolean, default=False)
-    visibility_level = Column(Integer, default=1)  # 1-5 for sub_admin access level
-    ownership = Column(JSON, nullable=True)  # JSON for resources/scopes
+    visibility_level = Column(Integer, default=1)  
+    ownership = Column(JSON, nullable=True)  
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     google_id = Column(String, unique=True, nullable=True) 
@@ -35,6 +35,8 @@ class User(Base):
     retention_start_date = Column(DateTime, nullable=True) 
     is_registered = Column(Enum(RegistrationStatus), nullable=False, default=RegistrationStatus.PENDING)
     registration_step = Column(Integer, nullable=False, default=1)
+    is_lateral=Column(Boolean, default=False)
+    payment_status=Column(Boolean, default=False)
     
     documents = relationship("Document", back_populates="user", cascade="all, delete-orphan")
    

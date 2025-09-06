@@ -161,7 +161,7 @@ async def get_user_product_data(
 ):
     try:
         result = await db.execute(
-            select(RegistrationProduct).filter(RegistrationProduct.id == user_id)
+            select(RegistrationProduct).filter(RegistrationProduct.user_id == user_id)
         )
         user = result.scalar_one_or_none()
         if not user:

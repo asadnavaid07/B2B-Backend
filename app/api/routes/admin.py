@@ -19,83 +19,11 @@ import logging
 logger = logging.getLogger(__name__)
 admin_router=APIRouter(prefix="/admin", tags=["admin"])
 
-# class KPIDetails(BaseModel):
-#     quality: float
-#     integrity: float
-#     child_labour: float
-#     artisan: float
-#     certification: float
-#     media: float
-#     packaging: float
-#     sourcing: float
-#     carbon: float
-#     hcrf: float
-#     artstay: float
+
 
 class RegistrationApproval(BaseModel):
     status: str  # APPROVED or REJECTED
     remarks: str | None = None
-
-# @admin_router.post("/assign-kpi/{document_id}")
-# async def assign_kpi_scores(
-#     document_id: int,
-#     kpi_details: KPIDetails,
-#     current_user: UserResponse = Depends(get_current_user),
-#     db: AsyncSession = Depends(get_db)
-# ):
-#     if current_user.role != "admin":
-#         raise HTTPException(status_code=403, detail="Admin access required")
-    
-#     try:
-#         result = await db.execute(
-#             select(Document).filter(Document.id == document_id)
-#         )
-#         doc = result.scalar_one_or_none()
-#         if not doc:
-#             raise HTTPException(status_code=404, detail="Document not found")
-        
-#         if doc.kpi_details is None:
-#             doc.kpi_details = {}
-        
-#         doc.kpi_details.update({
-#             "product_integrity": {
-#                 "quality": kpi_details.quality,
-#                 "integrity": kpi_details.integrity,
-#                 "child_labour": kpi_details.child_labour,
-#                 "artisan": kpi_details.artisan,
-#                 "certification": kpi_details.certification,
-#                 "availability": doc.kpi_details.get("product_integrity", {}).get("availability", 0)
-#             },
-#             "technology_integration": {
-#                 "inventory": doc.kpi_details.get("technology_integration", {}).get("inventory", 0),
-#                 "blockchain": doc.kpi_details.get("technology_integration", {}).get("blockchain", 0),
-#                 "media": kpi_details.media
-#             },
-#             "ethical_sustainability": {
-#                 "packaging": kpi_details.packaging,
-#                 "sourcing": kpi_details.sourcing,
-#                 "carbon": kpi_details.carbon
-#             },
-#             "ecosystem_engagement": {
-#                 "craftlore": doc.kpi_details.get("ecosystem_engagement", {}).get("craftlore", 0),
-#                 "hcrf": kpi_details.hcrf,
-#                 "artstay": kpi_details.artstay
-#             }
-#         })
-        
-#         doc.ai_kpi_score = sum(sum(category.values()) for category in doc.kpi_details.values())
-#         doc.ai_verification_status = VerificationStatus.PASS
-#         doc.ai_remarks = "Admin-assigned KPI scores"
-        
-#         db.add(doc)
-#         await db.commit()
-        
-#         logger.info(f"Admin assigned KPI scores for document {document_id}: {doc.kpi_details}")
-#         return {"message": "KPI scores assigned successfully", "kpi_details": doc.kpi_details}
-#     except Exception as e:
-#         await db.rollback()
-#         logger.error(f"Error assigning KPI scores for document {document_id}: {str(e)}")
-#         raise HTTPException(status_code=500, detail=f"Failed to assign KPI scores: {str(e)}")
 
 @admin_router.post("/approve-registration/{user_id}")
 async def approve_registration(
@@ -116,7 +44,9 @@ async def approve_registration(
         
         if approval.status not in ["APPROVED", "REJECTED"]:
             raise HTTPException(status_code=400, detail="Invalid status. Must be APPROVED or REJECTED")
-        
+        if approval.status == "APPROVED":
+            user.retention_start_date = datetime.utcnow()
+            
         if approval.status == "REJECTED":
             # Delete related data
             await db.execute("DELETE FROM registration_info WHERE user_id = %s", (user_id,))
@@ -353,3 +283,40 @@ async def get_user_product_data(
     except Exception as e:
         logger.error(f"Error fetching product data for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch product data: {str(e)}")
+    
+
+@admin_router.post("/user-lateral/{user_id}", status_code=200)
+async def mark_user_as_lateral(
+    user_id: int,
+    is_lateral: bool,
+    current_user: UserResponse = Depends(get_current_user),
+    role: UserRole = Depends(get_super_admin_role),
+    db: AsyncSession = Depends(get_db)
+):
+    if role != get_super_admin_role():
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    
+    try:
+        result = await db.execute(
+            Select(User).filter(User.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user.is_lateral = True
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        
+        logger.info(f"User {user.email} marked as {'lateral' if is_lateral else 'non-lateral'} by admin_id={current_user.id}")
+        return {
+            "message": f"User marked as {'lateral' if is_lateral else 'non-lateral'} successfully",
+            "user_id": user.id,
+            "email": user.email,
+            "is_lateral": user.is_lateral
+        }
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error marking user {user_id} as lateral: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to mark user as lateral: {str(e)}")

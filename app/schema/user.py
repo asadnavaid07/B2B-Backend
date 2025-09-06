@@ -72,6 +72,8 @@ class Token(BaseModel):
     ownership: Optional[Dict[str, List[str]]] = None
     is_registered: Optional[str] = "PENDING"
     registration_step: Optional[int] = 0
+    is_lateral: Optional[bool] = False
+    payment_status: Optional[bool] = False
 
 
 class UserResponse(BaseModel):
@@ -84,6 +86,8 @@ class UserResponse(BaseModel):
     ownership: Optional[Dict[str, List[str]]] = None
     is_registered: Optional[str] = "PENDING"
     registration_step: Optional[int] = 0
+    is_lateral: Optional[bool] = False
+    payment_status: Optional[bool] = False
 
 
     class Config:
@@ -102,6 +106,8 @@ class UserDashboardResponse(BaseModel):
     retention_period: Optional[str] = None
     is_registered: Optional[str] = "PENDING"
     registration_step: Optional[int] = 0 
+    is_lateral: Optional[bool] = False
+    payment_status: Optional[bool] = False
 
     class Config:
         orm_mode = True
