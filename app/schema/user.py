@@ -72,6 +72,7 @@ class Token(BaseModel):
     ownership: Optional[Dict[str, List[str]]] = None
     is_registered: Optional[str] = "PENDING"
     registration_step: Optional[int] = 0
+    first_register: Optional[bool] = False
     is_lateral: Optional[bool] = False
     payment_status: Optional[bool] = False
 
@@ -86,6 +87,7 @@ class UserResponse(BaseModel):
     ownership: Optional[Dict[str, List[str]]] = None
     is_registered: Optional[str] = "PENDING"
     registration_step: Optional[int] = 0
+    first_register: Optional[bool] = False  
     is_lateral: Optional[bool] = False
     payment_status: Optional[bool] = False
 

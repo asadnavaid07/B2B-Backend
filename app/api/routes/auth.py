@@ -220,7 +220,7 @@ async def google_auth_endpoint():
                     "client_secret": client_secret,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": ["https://business-ten-neon.vercel.app/auth/google-callback"]
+                    "redirect_uris": ["https://api.b2b.dekoshurcrafts.com/auth/google-callback"]
                 }
             },
             scopes=[
@@ -229,7 +229,7 @@ async def google_auth_endpoint():
                 "https://www.googleapis.com/auth/userinfo.profile"
             ]
         )
-        flow.redirect_uri = "https://business-ten-neon.vercel.app/auth/google-callback"
+        flow.redirect_uri = "https://api.b2b.dekoshurcrafts.com/auth/google-callback"
         auth_url, state = flow.authorization_url(
             prompt="consent",
             include_granted_scopes="true",
@@ -263,7 +263,7 @@ async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(
                     "client_secret": client_secret,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": ["https://business-ten-neon.vercel.app/auth/google-callback"]
+                    "redirect_uris": ["https://api.b2b.dekoshurcrafts.com/auth/google-callback"]
                 }
             },
             scopes=[
@@ -272,7 +272,7 @@ async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(
                 "https://www.googleapis.com/auth/userinfo.profile"
             ]
         )
-        flow.redirect_uri = "https://business-ten-neon.vercel.app/auth/google-callback"
+        flow.redirect_uri = "https://api.b2b.dekoshurcrafts.com/auth/google-callback"
         logger.debug(f"Fetching token with code: {code[:10]}...")
         flow.fetch_token(code=code)
         credentials = flow.credentials

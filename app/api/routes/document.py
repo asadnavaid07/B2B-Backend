@@ -10,7 +10,6 @@ from app.models.user import User
 from app.schema.document import DocumentResponse, DocumentReuploadRequest
 from app.services.auth.jwt import get_current_user
 from app.schema.user import UserResponse
-from app.services.ai_verification import analyze_document_advanced
 import os
 import logging
 import uuid
@@ -71,20 +70,19 @@ async def save_file(file: UploadFile, user_id: int, document_type: str) -> str:
 @doc_router.post("/documents", status_code=status.HTTP_201_CREATED)
 async def upload_document(
     document_type: str,
+    file_url: str = Form(None),
     files: list[UploadFile] = File(...),
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     logger.debug(f"Uploading documents for user {current_user.email}: {document_type}")
 
-    # Validate document type
     if document_type not in ALLOWED_DOCUMENT_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid document type. Allowed: {ALLOWED_DOCUMENT_TYPES}"
         )
-
-    # Validate file extensions
+    
     for file in files:
         file_ext = os.path.splitext(file.filename)[1].lower()
         if file_ext not in ALLOWED_EXTENSIONS:
@@ -93,7 +91,6 @@ async def upload_document(
                 detail=f"Invalid file format for {file.filename}. Allowed: {ALLOWED_EXTENSIONS}"
             )
 
-    # Restrict single file for non-product_catalog/certifications
     if document_type not in ["product_catalog", "certifications"] and len(files) > 1:
         raise HTTPException(
             status_code=400,
@@ -109,32 +106,38 @@ async def upload_document(
                 user_id=current_user.id,
                 document_type=document_type,
                 file_path=file_path,
+                file_url=file_url,
                 file_name=file.filename,
                 ai_verification_status=VerificationStatus.PENDING,
-                ai_kpi_score=0.0,
-                ai_remarks="Awaiting AI verification"
             )
-            
-            db.add(new_document)
-            await db.commit()
-            await db.refresh(new_document)
-            
-            # Trigger AI verification
-            verification_result = await analyze_document_advanced(
-                doc_id=new_document.id,
-                file_path=file_path,
-                document_type=document_type,
-                db=db
-            )
-            
-            document_ids.append({
-                "document_id": new_document.id,
-                "file_name": file.filename,
-                "status": verification_result["status"],
-                "remarks": verification_result["remarks"],
-            })
 
-        # Check if all required documents are uploaded and verified
+            db.add(new_document)
+            await db.flush()  # Ensure ID is generated
+            document_ids.append(new_document.id)
+
+            admin_notification = Notification(
+                admin_id=current_user.id,
+                message=f"Document {new_document.id} ({new_document.document_type}) uploaded by user_id={current_user.id} awaiting approval.",
+                target_type=NotificationTargetType.ALL_ADMINS,
+                visibility=True
+            )
+            db.add(admin_notification)
+
+        await db.commit()  
+        logger.debug(f"Committed documents for user {current_user.email}: {document_ids}")
+
+        result = await db.execute(
+            select(Document).filter(Document.id.in_(document_ids))
+        )
+        saved_documents = result.scalars().all()
+        if len(saved_documents) != len(document_ids):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Only {len(saved_documents)} out of {len(document_ids)} documents saved in database"
+            )
+
+        await db.refresh(new_document)  # Refresh the last document
+
         result = await db.execute(
             select(Document).filter(Document.user_id == current_user.id)
         )
@@ -153,8 +156,8 @@ async def upload_document(
                 user.registration_step = 4
                 db.add(user)
                 await db.commit()
-        
-        logger.info(f"Documents uploaded for user {current_user.email}: {document_ids}")
+
+        logger.info(f"Documents uploaded successfully for user {current_user.email}: {document_ids}")
         return {
             "message": "Documents uploaded successfully",
             "documents": document_ids
@@ -183,16 +186,20 @@ async def get_document_progress(
         # For product_catalog and certifications, check if at least one document exists
         missing_types = [t for t in required_types if t not in uploaded_types]
         
+        # Include uploaded documents with id and status
+        uploaded_documents = [
+            {"document_type": doc.document_type, "id": doc.id, "status": doc.ai_verification_status.value}
+            for doc in documents
+        ]
+        
         return {
             "progress": f"{uploaded_count}/{total_required}",
-            "uploaded_documents": list(uploaded_types),
+            "uploaded_documents": uploaded_documents,
             "missing_documents": missing_types
         }
     except Exception as e:
         logger.error(f"Error fetching document progress for {current_user.email}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch document progress: {str(e)}")
-
-
 
 @doc_router.post("/reupload", status_code=status.HTTP_200_OK, response_model=DocumentResponse)
 async def reupload_document(
@@ -221,7 +228,6 @@ async def reupload_document(
         )
 
     try:
-        # Fetch existing document
         result = await db.execute(
             select(Document).filter(
                 Document.id == document_id,
@@ -232,22 +238,17 @@ async def reupload_document(
         if not document:
             raise HTTPException(status_code=404, detail="Document not found or not owned by user")
         
-        # Ensure document_type matches
         if document.document_type != document_type:
             raise HTTPException(
                 status_code=400,
                 detail=f"Document type mismatch. Expected {document.document_type}, got {document_type}"
             )
 
-        # Save new file
         file_path = await save_file(file, current_user.id, document_type)
         
-        # Update document
         document.file_path = file_path
         document.file_url = file_url
         document.ai_verification_status = VerificationStatus.PENDING
-        document.ai_remarks = "Awaiting AI verification"
-        document.ai_kpi_score = 0.0
         document.updated_at = func.now()
         
         # Create notification for admins

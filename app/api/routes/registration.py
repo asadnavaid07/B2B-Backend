@@ -340,6 +340,7 @@ async def confirm_agreement(
             user = user_result.scalar_one_or_none()
             user.is_active = True
             db.add(user)
+            user.registration_step=6
             await db.commit()
             logger.info(f"Registration completed for {email}")
             return {"message": "Registration completed successfully"}

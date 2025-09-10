@@ -14,8 +14,6 @@ class Document(Base):
     file_name = Column(String(255), nullable=False)
     file_url = Column(String(500), nullable=True)
     ai_verification_status = Column(Enum(VerificationStatus), default=VerificationStatus.PENDING)
-    ai_kpi_score = Column(Integer, default=0)
-    ai_remarks = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 

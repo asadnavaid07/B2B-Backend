@@ -237,3 +237,34 @@ async def registration_selected(
             status_code=500,
             detail="Failed to fetch registration info"
         )
+
+@user_router.post("/first-register", status_code=200)
+async def mark_user_as_first(
+    is_first_register: bool,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+
+    try:
+        result = await db.execute(
+            Select(User).filter(User.id == current_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user.first_register = True
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        
+        return {
+            "message": f"User marked as {'lateral' if is_first_register else 'non-lateral'} successfully",
+            "user_id": user.id,
+            "email": user.email,
+            "is_lateral": user.first_register
+        }
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error marking user as lateral: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to mark user as lateral: {str(e)}")

@@ -9,7 +9,6 @@ from app.schema.user import UserResponse
 from app.models.document import Document, VerificationStatus
 from app.models.user import User
 from app.models.notification import Notification, NotificationTargetType
-from app.services.ai_verification import analyze_document_advanced
 import logging
 from datetime import datetime, timedelta
 from app.utils.partnership_levels import get_available_partnerships, get_retention_expiration, is_retention_period_over, partnership_level,partnership_dic, update_partnership_level
@@ -18,45 +17,6 @@ verification_router = APIRouter(prefix="/verification", tags=["verification"])
 
 
 
-@verification_router.get("/status")
-async def get_verification_status(
-    current_user: UserResponse = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    logger.debug(f"Fetching verification status for {current_user.email}")
-    try:
-        result = await db.execute(
-            select(Document).filter(Document.user_id == current_user.id)
-        )
-        documents = result.scalars().all()
-        
-        # Verify pending documents
-        for doc in documents:
-            if doc.ai_verification_status == VerificationStatus.PENDING:
-                await analyze_document_advanced(doc.id, doc.file_path, doc.document_type, db)
-        
-        # Refresh documents
-        result = await db.execute(
-            select(Document).filter(Document.user_id == current_user.id)
-        )
-        documents = result.scalars().all()
-        
-        return {
-            "documents": [
-                {
-                    "document_id": doc.id,
-                    "document_type": doc.document_type,
-                    "file_name": doc.file_name,
-                    "status": doc.ai_verification_status.value,
-                    "kpi_score": doc.ai_kpi_score,
-                    "remarks": doc.ai_remarks,
-                    "extracted_data": doc.extracted_data
-                } for doc in documents
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Error fetching verification status for {current_user.email}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch verification status: {str(e)}")
 
 @verification_router.get("/kpiscore")
 async def get_kpi_score(

@@ -11,7 +11,7 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-def create_access_token(username:str,email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0):
+def create_access_token(username:str,email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0, first_register:bool = False):
     to_encode = {"username":username,"sub": email, "user_id": user_id, "role": role}
     if visibility_level is not None:
         to_encode["visibility_level"] = visibility_level
@@ -23,6 +23,7 @@ def create_access_token(username:str,email: str, user_id: int, role: str, visibi
     if role in ["buyer","vendor"]:
         to_encode["is_registered"] = is_registered.value
         to_encode["registration_step"] = registration_step
+        to_encode["first_register"] = first_register
     else:
         expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
@@ -31,7 +32,7 @@ def create_access_token(username:str,email: str, user_id: int, role: str, visibi
 
 
 
-def create_refresh_token(username:str,email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0):
+def create_refresh_token(username:str,email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0,first_register:bool = False):
     to_encode = {"username":username,"sub": email, "user_id": user_id, "role": role}
     if visibility_level is not None:
         to_encode["visibility_level"] = visibility_level
@@ -42,6 +43,8 @@ def create_refresh_token(username:str,email: str, user_id: int, role: str, visib
     if role in ["buyer","vendor"]:
         to_encode["is_registered"] = is_registered.value
         to_encode["registration_step"] = registration_step
+        to_encode["first_register"] = first_register
+
     else:
         expire = datetime.utcnow() + timedelta(days=7)
     to_encode.update({"exp": expire})
@@ -70,7 +73,6 @@ def role_required(*allowed_roles: str):
             if role == "sub_admin":
                 if visibility_level is None:
                     raise HTTPException(status_code=403, detail="Sub-admin requires visibility level")
-                # Example: Restrict sub_admin access based on visibility_level
                 if visibility_level < 3 and any(r in ["super_admin"] for r in allowed_roles):
                     raise HTTPException(status_code=403, detail="Insufficient visibility level")
             
@@ -98,6 +100,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
         ownership: Optional[Dict[str, List[str]]] = payload.get("ownership")
         is_registered: Optional[str] = payload.get("is_registered")
         registration_step: Optional[int] = payload.get("registration_step")
+        first_register: Optional[bool] = payload.get("first_register", False)
         
         if email is None or user_id is None or role is None:
             raise HTTPException(status_code=401, detail="Invalid token")
@@ -111,7 +114,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserResponse:
             visibility_level=visibility_level,
             ownership=ownership,
             is_registered=is_registered,
-            registration_step=registration_step
+            registration_step=registration_step,
+            first_register=first_register
         )
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")

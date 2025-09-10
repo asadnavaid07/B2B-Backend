@@ -42,7 +42,8 @@ async def login_user(db: AsyncSession, user_login: UserLogin) -> Token:
         ownership=user.ownership,
         expires_delta=expires_delta_access,
         is_registered= user.is_registered,
-        registration_step= user.registration_step
+        registration_step= user.registration_step,
+        first_register= user.first_register
     )
     refresh_token = create_refresh_token(
         username=user.username,
@@ -53,7 +54,8 @@ async def login_user(db: AsyncSession, user_login: UserLogin) -> Token:
         ownership=user.ownership,
         expires_delta=expires_delta_refresh,
         is_registered= user.is_registered,
-        registration_step= user.registration_step
+        registration_step= user.registration_step,
+        first_register= user.first_register
     )
     return Token(
         access_token=access_token,
@@ -64,7 +66,8 @@ async def login_user(db: AsyncSession, user_login: UserLogin) -> Token:
         visibility_level=user.visibility_level,
         ownership=user.ownership,
         is_registered= user.is_registered,
-        registration_step= user.registration_step
+        registration_step= user.registration_step,
+        first_register= user.first_register 
     )
 
 async def register_user(db: AsyncSession, user: UserSignup, role: UserRole) -> UserResponse:
@@ -383,7 +386,7 @@ async def start_google_oauth():
                     "client_secret": client_secret,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris":  ["http://localhost:8000/auth/google-callback","http://localhost:3000/auth/google-callback","https://business-ten-neon.vercel.app/auth/google-callback"]
+                    "redirect_uris":  ["https://api.b2b.dekoshurcrafts.com/auth/google-callback"]
                 
                 }
             },
@@ -393,7 +396,7 @@ async def start_google_oauth():
                 "https://www.googleapis.com/auth/userinfo.profile"
             ]
         )
-        flow.redirect_uri = "https://business-ten-neon.vercel.app/auth/google-callback"
+        flow.redirect_uri = "https://api.b2b.dekoshurcrafts.com/auth/google-callback"
         auth_url, state = flow.authorization_url(
             prompt="consent",
             include_granted_scopes="true"

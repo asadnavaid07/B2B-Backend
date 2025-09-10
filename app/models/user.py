@@ -36,6 +36,7 @@ class User(Base):
     is_registered = Column(Enum(RegistrationStatus), nullable=False, default=RegistrationStatus.PENDING)
     registration_step = Column(Integer, nullable=False, default=1)
     is_lateral=Column(Boolean, default=False)
+    first_register=Column(Boolean, default=False)
     payment_status=Column(Boolean, default=False)
     
     documents = relationship("Document", back_populates="user", cascade="all, delete-orphan")

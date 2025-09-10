@@ -320,3 +320,40 @@ async def mark_user_as_lateral(
         await db.rollback()
         logger.error(f"Error marking user {user_id} as lateral: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to mark user as lateral: {str(e)}")
+    
+
+
+
+@admin_router.patch("/update-kpi-score", status_code=200)
+async def update_kpi_score(
+    user_id: int,
+    kpi_score: int,
+    current_user: UserResponse = Depends(get_current_user),
+    role: UserRole = Depends(get_super_admin_role),
+    db: AsyncSession = Depends(get_db)
+):
+    if role not in [get_super_admin_role(), get_sub_admin_role()]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        result = await db.execute(
+            Select(User).filter(User.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user.is_registered != RegistrationStatus.APPROVED:
+            raise HTTPException(status_code=404, detail="User not Registered")
+        
+        user.kpi_score = kpi_score
+        
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        
+        logger.info(f"KPI score for document {user.id} updated to {kpi_score} by admin_id={current_user.id}")
+        return {
+            "message": "KPI score updated successfully"
+        }
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error updating KPI score for document {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update KPI score: {str(e)}")
