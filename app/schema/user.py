@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, validator
 from enum import Enum
 from typing import Optional, Dict, List
 from app.models.user import UserRole
@@ -16,6 +16,17 @@ class ResendOTPRequest(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     id_token: str
+    role: str
+
+    @validator("role")
+    def validate_role(cls, value):
+        try:
+            role = UserRole(value.lower())
+            if role not in [UserRole.buyer, UserRole.vendor]:
+                raise ValueError("Role must be 'buyer' or 'vendor'")
+            return value
+        except ValueError:
+            raise ValueError("Invalid role. Must be 'buyer' or 'vendor'")
 
 
 class RefreshTokenRequest(BaseModel):

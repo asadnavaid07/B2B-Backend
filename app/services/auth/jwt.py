@@ -11,46 +11,76 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-def create_access_token(username:str,email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0, first_register:bool = False):
-    to_encode = {"username":username,"sub": email, "user_id": user_id, "role": role}
+def create_access_token(
+    username: str,
+    email: str,
+    user_id: int,
+    role: str,
+    visibility_level: Optional[int] = None,
+    ownership: Optional[Dict[str, List[str]]] = None,
+    expires_delta: timedelta = None,
+    is_registered: RegistrationStatus = RegistrationStatus.PENDING,
+    registration_step: int = 0,
+    first_register: bool = False,
+):
+    # 🔹 Default: 15 minutes for access tokens
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+
+    to_encode = {
+        "username": username,
+        "sub": email,
+        "user_id": user_id,
+        "role": role,
+        "exp": expire,
+    }
+
     if visibility_level is not None:
         to_encode["visibility_level"] = visibility_level
     if ownership is not None:
         to_encode["ownership"] = ownership
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    
-    if role in ["buyer","vendor"]:
+
+    if role in ["buyer", "vendor"]:
         to_encode["is_registered"] = is_registered.value
         to_encode["registration_step"] = registration_step
         to_encode["first_register"] = first_register
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def create_refresh_token(
+    username: str,
+    email: str,
+    user_id: int,
+    role: str,
+    visibility_level: Optional[int] = None,
+    ownership: Optional[Dict[str, List[str]]] = None,
+    expires_delta: timedelta = None,
+    is_registered: RegistrationStatus = RegistrationStatus.PENDING,
+    registration_step: int = 0,
+    first_register: bool = False,
+):
+    # 🔹 Default: 7 days for refresh tokens
+    expire = datetime.utcnow() + (expires_delta or timedelta(days=7))
 
-def create_refresh_token(username:str,email: str, user_id: int, role: str, visibility_level: Optional[int] = None, ownership: Optional[Dict[str, List[str]]] = None, expires_delta: timedelta = None,is_registered:RegistrationStatus = RegistrationStatus.PENDING,registration_step:int = 0,first_register:bool = False):
-    to_encode = {"username":username,"sub": email, "user_id": user_id, "role": role}
+    to_encode = {
+        "username": username,
+        "sub": email,
+        "user_id": user_id,
+        "role": role,
+        "exp": expire,
+    }
+
     if visibility_level is not None:
         to_encode["visibility_level"] = visibility_level
     if ownership is not None:
         to_encode["ownership"] = ownership
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    if role in ["buyer","vendor"]:
+
+    if role in ["buyer", "vendor"]:
         to_encode["is_registered"] = is_registered.value
         to_encode["registration_step"] = registration_step
         to_encode["first_register"] = first_register
 
-    else:
-        expire = datetime.utcnow() + timedelta(days=7)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def role_required(*allowed_roles: str):
     async def verify_token(token: str = Depends(oauth2_scheme)) -> UserResponse:

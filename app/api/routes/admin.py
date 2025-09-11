@@ -2,7 +2,7 @@ from datetime import datetime
 from select import select
 from fastapi import APIRouter,Depends, HTTPException, logger
 from pydantic import BaseModel
-from sqlalchemy import Select, func
+from sqlalchemy import Select, func, text
 from app.models.document import Document
 from app.models.notification import Notification, NotificationTargetType
 from app.schema.document import DocumentApproveRequest, DocumentResponse, VerificationStatus
@@ -48,13 +48,13 @@ async def approve_registration(
             user.retention_start_date = datetime.utcnow()
             
         if approval.status == "REJECTED":
-            # Delete related data
-            await db.execute("DELETE FROM registration_info WHERE user_id = %s", (user_id,))
-            await db.execute("DELETE FROM registration_levels WHERE user_id = %s", (user_id,))
-            await db.execute("DELETE FROM registration_products WHERE user_id = %s", (user_id,))
-            await db.execute("DELETE FROM documents WHERE user_id = %s", (user_id,))
-            await db.execute("DELETE FROM registration_agreements WHERE user_id = %s", (user_id,))
-        
+
+             await db.execute(text("DELETE FROM registration_info WHERE user_id = :user_id"), {"user_id": user_id})
+             await db.execute(text("DELETE FROM registration_levels WHERE user_id = :user_id"), {"user_id": user_id})
+             await db.execute(text("DELETE FROM registration_products WHERE user_id = :user_id"), {"user_id": user_id})
+             await db.execute(text("DELETE FROM documents WHERE user_id = :user_id"), {"user_id": user_id})
+             await db.execute(text("DELETE FROM registration_agreements WHERE user_id = :user_id"), {"user_id": user_id})
+
         user.is_registered = RegistrationStatus[approval.status]
         notification_message = (
             f"Your registration has been {approval.status.lower()}."
@@ -62,11 +62,13 @@ async def approve_registration(
         )
         
         notification = Notification(
-            user_id=user.id,
-            message=notification_message,
-            created_at=datetime.utcnow(),
-            is_read=False
-        )
+    admin_id=current_user.id,
+    user_id=user.id,
+    message=notification_message,
+    target_type=NotificationTargetType.ALL_USERS,   # ✅ set this
+    visibility=True,
+    created_at=datetime.utcnow(),
+)
         
         db.add(user)
         db.add(notification)
@@ -116,6 +118,24 @@ async def get_users(
     try:
         result=await db.execute(
             Select(Document) )
+        users=result.scalars().all()
+        return users
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch users:{str(e)}")
+    
+
+@admin_router.get("/document-info/{user_id}",response_model=list[DocumentResponse])
+async def get_users(
+    user_id:int,
+    role:UserRole=Depends(get_super_admin_role),
+    db:AsyncSession=Depends(get_db)
+):
+    if role not in [get_super_admin_role(),get_sub_admin_role()]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    try:
+        result=await db.execute(
+            Select(Document).filter(Document.user_id==user_id) )
         users=result.scalars().all()
         return users
     except Exception as e:
@@ -273,13 +293,14 @@ async def get_user_product_data(
         result = await db.execute(
             Select(RegistrationProduct).filter(RegistrationProduct.user_id == user_id)
         )
-        data = result.scalar_one_or_none()
+        data = result.scalars().all()
+        
         if not data:
             raise HTTPException(status_code=404, detail="User Data not found")
         
-        return{
-            "product_data": data.product_data
-        }
+        all_product_data=[product.product_data for product in data]
+        return all_product_data
+
     except Exception as e:
         logger.error(f"Error fetching product data for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch product data: {str(e)}")

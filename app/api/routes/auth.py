@@ -111,6 +111,7 @@ async def verify_otp(email: str, otp: str, db: AsyncSession = Depends(get_db)):
     await db.commit()
     
     access_token = create_access_token(
+        username=user.username,
         email=user.email,
         user_id=user.id,
         role=user.role.value,
@@ -119,6 +120,7 @@ async def verify_otp(email: str, otp: str, db: AsyncSession = Depends(get_db)):
         expires_delta=timedelta(hours=1)
     )
     refresh_token = create_refresh_token(
+        username=user.username,
         email=user.email,
         user_id=user.id,
         role=user.role.value,
@@ -198,12 +200,15 @@ async def google_login_endpoint(request: GoogleLoginRequest, db: AsyncSession = 
     if not request.id_token:
         logger.error("No id_token provided in request")
         raise HTTPException(status_code=400, detail="Missing id_token")
-    logger.debug(f"Processing Google login with ID token")
-    return await google_login(db, request.id_token)
+    logger.debug(f"Processing Google login with ID token for role: {request.role}")
+    return await google_login(db, request.id_token, request.role)
+
+from fastapi.responses import RedirectResponse
+import json
 
 @auth_router.get("/google-auth")
-async def google_auth_endpoint():
-    logger.debug("Starting Google OAuth flow")
+async def google_auth_endpoint(role: str):
+    logger.debug(f"Starting Google OAuth flow with role: {role}")
     try:
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import Flow
@@ -213,6 +218,16 @@ async def google_auth_endpoint():
         logger.debug(f"Client secret present: {bool(client_secret)}")
         if not client_id or not client_secret:
             raise HTTPException(status_code=500, detail="Missing Google client credentials")
+
+        # Validate role
+        try:
+            requested_role = UserRole(role.lower())
+            if requested_role not in [UserRole.buyer, UserRole.vendor]:
+                raise ValueError("Invalid role")
+        except ValueError:
+            logger.error(f"Invalid role provided: {role}")
+            raise HTTPException(status_code=400, detail="Invalid role. Must be 'buyer' or 'vendor'")
+
         flow = Flow.from_client_config(
             {
                 "web": {
@@ -230,32 +245,57 @@ async def google_auth_endpoint():
             ]
         )
         flow.redirect_uri = "https://api.b2b.dekoshurcrafts.com/auth/google-callback"
+        # Encode role in the state parameter
+        state = json.dumps({"role": role})
         auth_url, state = flow.authorization_url(
             prompt="consent",
             include_granted_scopes="true",
-            access_type="offline"
+            access_type="offline",
+            state=state
         )
         logger.info(f"Redirecting to Google auth URL: {auth_url}")
         return RedirectResponse(auth_url)
     except Exception as e:
         logger.error(f"Error starting Google OAuth: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to start Google OAuth: {str(e)}")
+    
 
 @auth_router.get("/google-callback")
 async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
-    logger.debug(f"Processing Google OAuth callback: {request.query_params}")
     code = request.query_params.get("code")
+    state = request.query_params.get("state")
     if not code:
+        logger.error("Missing authorization code in Google callback")
         raise HTTPException(status_code=400, detail="Missing authorization code")
+    if not state:
+        logger.error("Missing state parameter in Google callback")
+        raise HTTPException(status_code=400, detail="Missing state parameter")
+
     try:
+        # Decode the state to extract the role
+        state_data = json.loads(state)
+        role = state_data.get("role")
+        if not role:
+            logger.error("No role found in state parameter")
+            raise HTTPException(status_code=400, detail="Missing role in state")
+        
+        # Validate role
+        try:
+            requested_role = UserRole(role.lower())
+            if requested_role not in [UserRole.buyer, UserRole.vendor]:
+                raise ValueError("Invalid role")
+        except ValueError:
+            logger.error(f"Invalid role in state: {role}")
+            raise HTTPException(status_code=400, detail="Invalid role. Must be 'buyer' or 'vendor'")
+
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import Flow
         client_id = os.getenv("GOOGLE_CLIENT_ID")
         client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        logger.debug(f"Using client_id: {client_id[:10]}... for OAuth flow")
-        logger.debug(f"Client secret present: {bool(client_secret)}")
+
         if not client_id or not client_secret:
             raise HTTPException(status_code=500, detail="Missing Google client credentials")
+        
         flow = Flow.from_client_config(
             {
                 "web": {
@@ -277,7 +317,11 @@ async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(
         flow.fetch_token(code=code)
         credentials = flow.credentials
         logger.debug(f"Credentials received: id_token={bool(credentials.id_token)}")
-        return await google_login(db, credentials.id_token)
+
+        return await google_login(db, credentials.id_token, role)
+    except json.JSONDecodeError:
+        logger.error("Invalid state parameter format")
+        raise HTTPException(status_code=400, detail="Invalid state parameter")
     except Exception as e:
         logger.error(f"Error in Google callback: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Google OAuth failed: {str(e)}")
@@ -351,6 +395,7 @@ async def refresh_token_endpoint(request: RefreshTokenRequest, db: AsyncSession 
             raise HTTPException(status_code=403, detail="Account not activated")
         
         access_token = create_access_token(
+            username=user.username,
             email=user.email,
             user_id=user.id,
             role=user.role.value,
@@ -358,8 +403,8 @@ async def refresh_token_endpoint(request: RefreshTokenRequest, db: AsyncSession 
             ownership=user.ownership,
             expires_delta=timedelta(hours=1)
         )
-        # Optionally rotate refresh token
         refresh_token = create_refresh_token(
+            username=user.username,
             email=user.email,
             user_id=user.id,
             role=user.role.value,

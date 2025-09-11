@@ -278,19 +278,30 @@ async def update_sub_admin(db: AsyncSession, user_id: int, user_update: SubAdmin
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
-async def google_login(db: AsyncSession, token: str):
+async def google_login(db: AsyncSession, token: str, role: str):
     email = None
     try:
+        # Validate the requested role
+        try:
+            requested_role = UserRole(role.lower())
+            if requested_role not in [UserRole.buyer, UserRole.vendor]:
+                raise ValueError("Invalid role. Only 'buyer' or 'vendor' allowed.")
+        except ValueError:
+            logger.error(f"Invalid role provided: {role}")
+            raise HTTPException(status_code=400, detail="Invalid role. Must be 'buyer' or 'vendor'.")
+
         client_id = os.getenv("GOOGLE_CLIENT_ID")
-        logger.debug(f"Verifying ID token with client_id: {client_id[:10]}...")
+        
         if not client_id:
             raise HTTPException(status_code=500, detail="Missing Google client ID")
+        
         idinfo = id_token.verify_oauth2_token(token, requests.Request(), client_id)
         
         google_id = idinfo['sub']
         email = idinfo['email']
         username = idinfo.get('name', email.split('@')[0])
         
+
         result = await db.execute(select(User).filter((User.google_id == google_id) | (User.email == email)))
         existing_user = result.scalar_one_or_none()
         
@@ -298,8 +309,13 @@ async def google_login(db: AsyncSession, token: str):
             if not existing_user.is_active:
                 logger.warning(f"Unverified user found for Google ID {google_id} or email {email}")
                 raise HTTPException(status_code=400, detail="Account not verified. Please complete OTP verification.")
-            logger.info(f"Existing user {email} logged in via Google")
+
+            if existing_user.role != requested_role:
+                logger.warning(f"Role mismatch for user {email}: requested {role}, but user is {existing_user.role.value}")
+                raise HTTPException(status_code=400, detail=f"User is already registered as {existing_user.role.value}. Cannot change role.")
+            logger.info(f"Existing user {email} logged in via Google as {existing_user.role.value}")
             access_token = create_access_token(
+                username=existing_user.username, 
                 email=existing_user.email,
                 user_id=existing_user.id,
                 role=existing_user.role.value,
@@ -307,6 +323,7 @@ async def google_login(db: AsyncSession, token: str):
                 ownership=existing_user.ownership
             )
             refresh_token = create_refresh_token(
+                username=existing_user.username, 
                 email=existing_user.email,
                 user_id=existing_user.id,
                 role=existing_user.role.value,
@@ -323,24 +340,31 @@ async def google_login(db: AsyncSession, token: str):
                 "ownership": existing_user.ownership
             }
         
-        result = await db.execute(select(User).filter(User.username == username))
-        existing_username = result.scalar_one_or_none()
-        if existing_username and existing_username.is_active:
-            username = f"{username}_{secrets.randbelow(1000)}"
+
+        base_username = username
+        suffix = 0
+        while True:
+            result = await db.execute(select(User).filter(User.username == username))
+            existing_username = result.scalar_one_or_none()
+            if not existing_username or not existing_username.is_active:
+                break
+            suffix += 1
+            username = f"{base_username}_{suffix}"
         
         new_user = User(
             email=email,
             username=username,
             google_id=google_id,
-            role=UserRole.buyer,
+            role=requested_role, 
             is_active=True
         )
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
         
-        logger.info(f"New user {email} created via Google Sign-In")
+        logger.info(f"New user {email} created via Google Sign-In as {requested_role.value}")
         access_token = create_access_token(
+            username=new_user.username,
             email=new_user.email,
             user_id=new_user.id,
             role=new_user.role.value,
@@ -348,6 +372,7 @@ async def google_login(db: AsyncSession, token: str):
             ownership=new_user.ownership
         )
         refresh_token = create_refresh_token(
+            username=new_user.username,
             email=new_user.email,
             user_id=new_user.id,
             role=new_user.role.value,
@@ -364,12 +389,14 @@ async def google_login(db: AsyncSession, token: str):
             "ownership": new_user.ownership
         }
     except ValueError as e:
-        logger.error(f"Invalid Google ID token: {str(e)}")
+        logger.error(f"Invalid Google ID token for email {email or 'unknown'}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=401, detail="Invalid Google token")
     except Exception as e:
-        email_str = email if email else "unknown"
-        logger.error(f"Error processing Google login for {email_str}: {str(e)}")
+        logger.error(f"Error processing Google login for {email or 'unknown'}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Google login failed: {str(e)}")
+    
+
+
 
 async def start_google_oauth():
     try:

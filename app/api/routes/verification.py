@@ -98,8 +98,7 @@ async def get_notifications(
             {
                 "id": notif.id,
                 "message": notif.message,
-                "created_at": notif.created_at.isoformat(),
-                "is_read": notif.is_read
+                "created_at": notif.created_at.isoformat()
             } for notif in notifications
         ]
     except Exception as e:
@@ -291,8 +290,7 @@ async def get_notifications(
             {
                 "id": notif.id,
                 "message": notif.message,
-                "created_at": notif.created_at.isoformat(),
-                "is_read": notif.is_read
+                "created_at": notif.created_at.isoformat()
             } for notif in notifications
         ]
     except Exception as e:
