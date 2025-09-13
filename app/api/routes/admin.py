@@ -47,14 +47,6 @@ async def approve_registration(
         if approval.status == "APPROVED":
             user.retention_start_date = datetime.utcnow()
             
-        if approval.status == "REJECTED":
-
-             await db.execute(text("DELETE FROM registration_info WHERE user_id = :user_id"), {"user_id": user_id})
-             await db.execute(text("DELETE FROM registration_levels WHERE user_id = :user_id"), {"user_id": user_id})
-             await db.execute(text("DELETE FROM registration_products WHERE user_id = :user_id"), {"user_id": user_id})
-             await db.execute(text("DELETE FROM documents WHERE user_id = :user_id"), {"user_id": user_id})
-             await db.execute(text("DELETE FROM registration_agreements WHERE user_id = :user_id"), {"user_id": user_id})
-
         user.is_registered = RegistrationStatus[approval.status]
         notification_message = (
             f"Your registration has been {approval.status.lower()}."
