@@ -116,7 +116,7 @@ class UserDashboardResponse(BaseModel):
     ownership: Optional[Dict[str, List[str]]] = None
     kpi_score: Optional[float] = None         
     partnership_level: Optional[str] = None  
-    retention_period: Optional[str] = None
+    retention_period: Optional[int] = 0
     is_registered: Optional[str] = "PENDING"
     registration_step: Optional[int] = 0 
     is_lateral: Optional[bool] = False

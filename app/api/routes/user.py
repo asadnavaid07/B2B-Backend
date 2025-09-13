@@ -165,11 +165,11 @@ async def get_user_product_data(
         result = await db.execute(
             select(RegistrationProduct).filter(RegistrationProduct.user_id == user_id)
         )
-        user = result.scalar().first()
+        user = result.scalars().all()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        product_data=[product.data for product in user.product]
+        product_data=[product.product_data for product in user]
         
         return product_data
     
