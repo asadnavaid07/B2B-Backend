@@ -137,7 +137,7 @@ async def get_current_partnership(
             "partnership_level": user.partnership_level if user.partnership_level else None,
             "kpi_score": user.kpi_score,
             "retention_period": user.retention_period,
-            "retention_expiration": retention_expiration.isoformat() if retention_expiration else None,
+            "retention_expiration": retention_expiration if retention_expiration else None,
             "is_retention_expired": is_retention_expired
         }
     except Exception as e:
@@ -172,7 +172,7 @@ async def get_available_partnerships_api(
             "kpi_score": user.kpi_score,
             "current_partnership_level": user.partnership_level,
             "retention_period": user.retention_period,
-            "retention_expiration": get_retention_expiration(user.retention_period, user.retention_start_date).isoformat() if user.retention_start_date else None
+            "retention_expiration": get_retention_expiration(user.retention_period, user.retention_start_date) if user.retention_start_date else None
         }
     except Exception as e:
         logger.error(f"Error fetching available partnerships for {current_user.email}: {str(e)}")
@@ -238,7 +238,7 @@ async def get_kpi_score(
             "kpi_score": kpi_score,
             "partnership_level": user.partnership_level.value,
             "retention_period": user.retention_period,
-            "retention_expiration": retention_expiration.isoformat() if retention_expiration else None,
+            "retention_expiration": retention_expiration if retention_expiration else None,
             "is_retention_expired": is_retention_expired,
             "available_partnerships": [p.value for p in available_partnerships],
             "verified_documents": len(documents),

@@ -43,15 +43,17 @@ def get_available_partnerships(kpi_score: float, current_level: PartnershipLevel
         if partnership_levels[i]["level"] == current_level:
             current_index = i
             break
-    print(f"Current partnership level: {current_level}, index: {current_index}")
     
     available = []
     current_date = datetime.utcnow()
     
     for i in range(current_index + 1, len(partnership_levels)):
         next_level = partnership_levels[i]
-        print(months_till_level[next_level["level"]])
-        if int(retention_period)>=months_till_level[next_level["level"]] and kpi_score >= next_level["min_kpi"]:
+
+        if retention_period==0:
+             return []
+             
+        if retention_period>=months_till_level[next_level["level"]] and kpi_score >= next_level["min_kpi"]:
             available.append(next_level["level"])
         else:
              break

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Select
+from sqlalchemy import Select, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.core.database import get_db
-from app.models.user import User
-from app.models.registration import RegistrationInfo, RegistrationLevel, RegistrationProduct
+from app.models.document import Document
+from app.models.user import RegistrationStatus, User
+from app.models.registration import RegistrationAgreement, RegistrationInfo, RegistrationLevel, RegistrationProduct
 from app.services.auth.jwt import get_current_user
 from app.schema.user import UserDashboardResponse, UserResponse, UserRole, get_super_admin_role
 from pydantic import BaseModel
@@ -164,13 +165,15 @@ async def get_user_product_data(
         result = await db.execute(
             select(RegistrationProduct).filter(RegistrationProduct.user_id == user_id)
         )
-        user = result.scalar_one_or_none()
+        user = result.scalar().first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        return{
-            "product_data": user.product_data
-        }
+        product_data=[product.data for product in user.product]
+        
+        return product_data
+    
+
     except Exception as e:
         logger.error(f"Error fetching product data for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch product data: {str(e)}")
@@ -268,3 +271,50 @@ async def mark_user_as_first(
         await db.rollback()
         logger.error(f"Error marking user as lateral: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to mark user as lateral: {str(e)}")
+    
+
+
+@user_router.post("/rejected/{user_id}", status_code=200)
+async def rejected_user(user_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        result = await db.execute(select(User).filter(User.id == user_id))
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        print(user.is_registered)
+
+        if user.is_registered != RegistrationStatus.REJECTED:
+            raise HTTPException(status_code=400, detail="User is not in REJECTED status")
+
+        # Delete related records safely
+        await db.execute(delete(RegistrationInfo).where(RegistrationInfo.user_id == user_id))
+        await db.execute(delete(RegistrationLevel).where(RegistrationLevel.user_id == user_id))
+        await db.execute(delete(RegistrationProduct).where(RegistrationProduct.user_id == user_id))
+        await db.execute(delete(Document).where(Document.user_id == user_id))
+        await db.execute(delete(RegistrationAgreement).where(RegistrationAgreement.user_id == user_id))
+
+
+        user.is_registered = RegistrationStatus.PENDING
+        db.add(user)
+
+        await db.commit()
+        await db.refresh(user)
+
+        return {"message": "User reset to PENDING and related data deleted successfully"}
+
+    except HTTPException:
+        raise  # Re-raise known exceptions
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
+
+
+        
+
+
+
+
+
