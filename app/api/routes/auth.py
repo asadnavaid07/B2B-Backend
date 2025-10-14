@@ -237,7 +237,7 @@ async def google_auth_endpoint(role: str):
                     "client_secret": client_secret,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": ["http://127.0.0.1:8000/auth/google-callback"]
+                    "redirect_uris": ["https://api.b2b.dekoshurcrafts.com/auth/google-callback"]
                 }
             },
             scopes=[
@@ -246,7 +246,7 @@ async def google_auth_endpoint(role: str):
                 "https://www.googleapis.com/auth/userinfo.profile"
             ]
         )
-        flow.redirect_uri = "http://127.0.0.1:8000/auth/google-callback"
+        flow.redirect_uri = "https://api.b2b.dekoshurcrafts.com/auth/google-callback"
         # Encode role in the state parameter
         state = json.dumps({"role": role})
         auth_url, state = flow.authorization_url(
@@ -306,7 +306,7 @@ async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(
                     "client_secret": client_secret,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": ["http://127.0.0.1:8000/auth/google-callback"]
+                    "redirect_uris": ["https://api.b2b.dekoshurcrafts.com/auth/google-callback"]
                 }
             },
             scopes=[
@@ -315,7 +315,7 @@ async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(
                 "https://www.googleapis.com/auth/userinfo.profile"
             ]
         )
-        flow.redirect_uri = "http://127.0.0.1:8000/auth/google-callback"
+        flow.redirect_uri = "https://api.b2b.dekoshurcrafts.com/auth/google-callback"
         logger.debug(f"Fetching token with code: {code[:10]}...")
         flow.fetch_token(code=code)
         credentials = flow.credentials
@@ -340,118 +340,6 @@ async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(
         raise HTTPException(status_code=400, detail=f"Google OAuth failed: {str(e)}")    
     
 
-# @auth_router.get("/google-callback")
-# async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
-#     code = request.query_params.get("code")
-#     state = request.query_params.get("state")
-#     if not code:
-#         logger.error("Missing authorization code in Google callback")
-#         raise HTTPException(status_code=400, detail="Missing authorization code")
-#     if not state:
-#         logger.error("Missing state parameter in Google callback")
-#         raise HTTPException(status_code=400, detail="Missing state parameter")
-
-#     try:
-#         # Decode the state to extract the role
-#         state_data = json.loads(state)
-#         role = state_data.get("role")
-#         if not role:
-#             logger.error("No role found in state parameter")
-#             raise HTTPException(status_code=400, detail="Missing role in state")
-        
-#         # Validate role
-#         try:
-#             requested_role = UserRole(role.lower())
-#             if requested_role not in [UserRole.buyer, UserRole.vendor]:
-#                 raise ValueError("Invalid role")
-#         except ValueError:
-#             logger.error(f"Invalid role in state: {role}")
-#             raise HTTPException(status_code=400, detail="Invalid role. Must be 'buyer' or 'vendor'")
-
-#         from google.oauth2.credentials import Credentials
-#         from google_auth_oauthlib.flow import Flow
-#         client_id = os.getenv("GOOGLE_CLIENT_ID")
-#         client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-
-#         if not client_id or not client_secret:
-#             raise HTTPException(status_code=500, detail="Missing Google client credentials")
-        
-#         flow = Flow.from_client_config(
-#             {
-#                 "web": {
-#                     "client_id": client_id,
-#                     "client_secret": client_secret,
-#                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-#                     "token_uri": "https://oauth2.googleapis.com/token",
-#                     "redirect_uris": ["https://api.b2b.dekoshurcrafts.com/auth/google-callback"]
-#                 }
-#             },
-#             scopes=[
-#                 "openid",
-#                 "https://www.googleapis.com/auth/userinfo.email",
-#                 "https://www.googleapis.com/auth/userinfo.profile"
-#             ]
-#         )
-#         flow.redirect_uri = "https://api.b2b.dekoshurcrafts.com/auth/google-callback"
-#         logger.debug(f"Fetching token with code: {code[:10]}...")
-#         flow.fetch_token(code=code)
-#         credentials = flow.credentials
-#         logger.debug(f"Credentials received: id_token={bool(credentials.id_token)}")
-
-#         return await google_login(db, credentials.id_token, role)
-#     except json.JSONDecodeError:
-#         logger.error("Invalid state parameter format")
-#         raise HTTPException(status_code=400, detail="Invalid state parameter")
-#     except Exception as e:
-#         logger.error(f"Error in Google callback: {str(e)}")
-#         raise HTTPException(status_code=400, detail=f"Google OAuth failed: {str(e)}")
-
-# @auth_router.get("/google-auth")
-# async def google_auth_endpoint():
-#     logger.debug("Starting Google OAuth flow")
-#     return await start_google_oauth()
-
-# @auth_router.get("/google-callback")
-# async def google_callback_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
-#     logger.debug(f"Processing Google OAuth callback: {request.query_params}")
-#     code = request.query_params.get("code")
-#     if not code:
-#         raise HTTPException(status_code=400, detail="Missing authorization code")
-#     try:
-#         from google.oauth2.credentials import Credentials
-#         from google_auth_oauthlib.flow import Flow
-#         client_id = os.getenv("GOOGLE_CLIENT_ID")
-#         client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-#         logger.debug(f"Using client_id: {client_id[:10]}... for OAuth flow")
-#         logger.debug(f"Client secret present: {bool(client_secret)}")
-#         if not client_id or not client_secret:
-#             raise HTTPException(status_code=500, detail="Missing Google client credentials")
-#         flow = Flow.from_client_config(
-#             {
-#                 "web": {
-#                     "client_id": client_id,
-#                     "client_secret": client_secret,
-#                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-#                     "token_uri": "https://oauth2.googleapis.com/token",
-#                     "redirect_uris": ["http://localhost:8000/auth/google-callback","http://localhost:3000/auth/google-callback","https://business-ten-neon.vercel.app/auth/google-callback"]
-#                 }
-#             },
-#             scopes=[
-#                 "openid",
-#                 "https://www.googleapis.com/auth/userinfo.email",
-#                 "https://www.googleapis.com/auth/userinfo.profile"
-#             ]
-#         )
-#         flow.redirect_uri = "https://business-ten-neon.vercel.app/auth/google-callback"
-#         logger.debug(f"Fetching token with code: {code[:10]}...")
-#         flow.fetch_token(code=code)
-#         credentials = flow.credentials
-#         logger.debug(f"Credentials received: id_token={bool(credentials.id_token)}")
-#         return await google_login(db, credentials.id_token)
-#     except Exception as e:
-#         logger.error(f"Error in Google callback: {str(e)}")
-#         raise HTTPException(status_code=400, detail=f"Google OAuth failed: {str(e)}")
-    
 
 @auth_router.post("/refresh-token", response_model=Token)
 async def refresh_token_endpoint(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):

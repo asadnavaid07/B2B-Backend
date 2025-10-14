@@ -46,6 +46,7 @@ async def approve_registration(
             raise HTTPException(status_code=400, detail="Invalid status. Must be APPROVED or REJECTED")
         if approval.status == "APPROVED":
             user.retention_start_date = datetime.utcnow()
+            user.retention_period = 0  # Initialize retention period to 0 months
             
         user.is_registered = RegistrationStatus[approval.status]
         notification_message = (
@@ -285,13 +286,45 @@ async def get_user_product_data(
         result = await db.execute(
             Select(RegistrationProduct).filter(RegistrationProduct.user_id == user_id)
         )
-        data = result.scalars().all()
+        user_products = result.scalars().all()
         
-        if not data:
+        if not user_products:
             raise HTTPException(status_code=404, detail="User Data not found")
         
-        all_product_data=[product.product_data for product in data]
-        return all_product_data
+        # Group products by category
+        categories_dict = {}
+        
+        for product in user_products:
+            product_data = product.product_data
+            category_id = product_data.get("categoryId")
+            category_name = product_data.get("categoryName")
+            subcategory_id = product_data.get("subcategoryId")
+            subcategory_name = product_data.get("subcategoryName")
+            specifications = product_data.get("specifications", {})
+            
+            # Create category if it doesn't exist
+            if category_id not in categories_dict:
+                categories_dict[category_id] = {
+                    "categoryId": category_id,
+                    "categoryName": category_name,
+                    "subcategories": []
+                }
+            
+            # Add subcategory to the category
+            subcategory = {
+                "subcategoryId": subcategory_id,
+                "subcategoryName": subcategory_name,
+                "specifications": specifications
+            }
+            
+            categories_dict[category_id]["subcategories"].append(subcategory)
+        
+        # Convert to the expected format
+        selected_data = list(categories_dict.values())
+        
+        return {
+            "selectedData": selected_data
+        }
 
     except Exception as e:
         logger.error(f"Error fetching product data for user {user_id}: {str(e)}")

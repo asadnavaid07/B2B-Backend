@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 import os
 from app.api.version1.route_init import router
+from app.services.background_tasks import background_task_service
 
 load_dotenv()
 
@@ -17,7 +18,11 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app:FastAPI):
     await init_db()
+    # Start all background schedulers
+    await background_task_service.start_all_schedulers()
     yield
+    # Stop all schedulers when app shuts down
+    await background_task_service.stop_all_schedulers()
 
 def create_app() -> FastAPI:
     app = FastAPI(
@@ -71,7 +76,6 @@ def create_app() -> FastAPI:
         session_cookie="session_cookie"
     )
 
-    app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
     app.include_router(router)
 
     return app

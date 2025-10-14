@@ -186,9 +186,14 @@ async def get_document_progress(
         # For product_catalog and certifications, check if at least one document exists
         missing_types = [t for t in required_types if t not in uploaded_types]
         
-        # Include uploaded documents with id and status
+        # Include uploaded documents with id, status, and file_url
         uploaded_documents = [
-            {"document_type": doc.document_type, "id": doc.id, "status": doc.ai_verification_status.value}
+            {
+                "document_type": doc.document_type, 
+                "id": doc.id, 
+                "status": doc.ai_verification_status.value,
+                "file_url": doc.file_url
+            }
             for doc in documents
         ]
         
