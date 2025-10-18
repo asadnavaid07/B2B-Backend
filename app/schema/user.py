@@ -104,7 +104,7 @@ class UserResponse(BaseModel):
 
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class UserDashboardResponse(BaseModel):
     id: int
@@ -123,7 +123,7 @@ class UserDashboardResponse(BaseModel):
     payment_status: Optional[bool] = False
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         
 
     class Config:
@@ -142,7 +142,7 @@ class PlanResponse(BaseModel):
     level: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class UserPlanResponse(BaseModel):
     id: int
@@ -152,4 +152,4 @@ class UserPlanResponse(BaseModel):
     retention_progress: Optional[float]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
