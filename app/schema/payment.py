@@ -75,18 +75,5 @@ class PaymentAnalyticsResponse(BaseModel):
     deactivated_partnerships: int
     payment_success_rate: float
 
-class ThreeTierPricingRequest(BaseModel):
-    partnership_level: PartnershipLevel
-    first_tier_price: float = Field(..., gt=0, description="Price for 1st tier")
-    second_tier_price: float = Field(..., gt=0, description="Price for 2nd tier")
-    third_tier_price: float = Field(..., gt=0, description="Price for 3rd tier")
-
-class ThreeTierPricingResponse(BaseModel):
-    id: int
-    partnership_level: str
-    prices: Dict[str, float]
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
+# ThreeTierPricing schemas removed - use partnership-level schemas instead
+# Use PartnershipLevelCreate, PartnershipLevelUpdate, PartnershipLevelResponse from partnership_level.py

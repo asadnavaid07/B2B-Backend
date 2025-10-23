@@ -1,7 +1,8 @@
 import os
 import secrets
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -15,11 +16,9 @@ logger = logging.getLogger(__name__)
 
 async def send_otp_email(email: str, db: AsyncSession) -> bool:
     try:
-        # Normalize email
         email = email.lower().strip()
         logger.debug(f"Starting send_otp_email for {email}, session active: {not db.is_active}")
 
-        # Generate OTP
         otp_code = str(secrets.randbelow(1000000)).zfill(6)  # 6-digit OTP
         logger.debug(f"Generated OTP {otp_code} for {email}")
 
@@ -32,7 +31,7 @@ async def send_otp_email(email: str, db: AsyncSession) -> bool:
             await db.rollback()
             raise HTTPException(status_code=500, detail=f"Database error deleting OTPs: {str(e)}")
 
-        # Store new OTP
+
         try:
             new_otp = OTP(
                 email=email,
@@ -60,31 +59,53 @@ async def send_otp_email(email: str, db: AsyncSession) -> bool:
             await db.rollback()
             raise HTTPException(status_code=500, detail=f"Database error verifying OTP: {str(e)}")
 
-        # Send email via SendGrid
-        sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
+        # Send email via SMTP
+        smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_username = os.getenv("SMTP_USERNAME")
+        smtp_password = os.getenv("SMTP_PASSWORD")
         email_from = os.getenv("EMAIL_FROM")
-        if not sendgrid_api_key or not email_from:
-            logger.error("Missing SendGrid API key or sender email")
+        
+        if not smtp_username or not smtp_password or not email_from:
+            logger.error("Missing SMTP configuration (username, password, or sender email)")
             raise HTTPException(status_code=500, detail="Email service configuration missing")
 
-        message = Mail(
-            from_email=email_from,
-            to_emails=email,
-            subject="Your OTP for Project Overflow",
-            plain_text_content=f"Your OTP is: {otp_code}. Please use it to verify your account."
-        )
-
         try:
-            sg = SendGridAPIClient(sendgrid_api_key)
-            response = sg.send(message)
-            if response.status_code >= 200 and response.status_code < 300:
-                logger.info(f"OTP email sent to {email}, status code: {response.status_code}")
-                return True
-            else:
-                logger.error(f"Failed to send OTP email to {email}, status code: {response.status_code}")
-                return False  # OTP is still stored in the database
+            # Create message
+            msg = MIMEMultipart()
+            msg['From'] = email_from
+            msg['To'] = email
+            msg['Subject'] = "Your OTP for Project Overflow"
+            
+            # Email body
+            body = f"""
+            Hello,
+            
+            Your OTP (One-Time Password) is: {otp_code}
+            
+            Please use this code to verify your account. This code will expire in 10 minutes.
+            
+            If you did not request this OTP, please ignore this email.
+            
+            Best regards,
+            Project Overflow Team
+            """
+            
+            msg.attach(MIMEText(body, 'plain'))
+            
+            # Send email
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()  # Enable TLS encryption
+            server.login(smtp_username, smtp_password)
+            text = msg.as_string()
+            server.sendmail(email_from, email, text)
+            server.quit()
+            
+            logger.info(f"OTP email sent successfully to {email}")
+            return True
+            
         except Exception as e:
-            logger.error(f"SendGrid error for {email}: {str(e)}")
+            logger.error(f"SMTP error for {email}: {str(e)}")
             return False  # OTP is still stored in the database
 
     except Exception as e:

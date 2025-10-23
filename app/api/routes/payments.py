@@ -12,7 +12,7 @@ from app.schema.user import UserResponse, UserRole
 from app.schema.payment import (
     PaymentRequest, PaymentResponse, SubscriptionResponse, PaymentWebhook,
     PaymentHistoryResponse, PaymentNotificationResponse, PartnershipDeactivationResponse,
-    PaymentAnalyticsResponse, ThreeTierPricingRequest, ThreeTierPricingResponse
+    PaymentAnalyticsResponse
 )
 from app.models.user import User
 from app.models.notification import Notification, NotificationTargetType
@@ -61,7 +61,7 @@ async def create_lateral_payment(
             select(Payment).filter(
                 and_(
                     Payment.user_id == current_user.id,
-                    Payment.partnership_level == level_enum,
+                    Payment.partnership_level == level_enum,  # Use enum directly
                     Payment.payment_type == PaymentType.LATERAL,
                     Payment.payment_status == PaymentStatus.SUCCESS
                 )
@@ -97,8 +97,8 @@ async def create_lateral_payment(
         
         new_payment = Payment(
             user_id=current_user.id,
-            partnership_level=level_enum,
-            plan=request.plan,
+            partnership_level=level_enum,  # Use enum directly
+            plan=request.plan,  # Use enum directly
             amount=float(price),
             payment_type=PaymentType.LATERAL,
             stripe_payment_id=intent.id
@@ -132,7 +132,7 @@ async def create_monthly_subscription(
             select(Payment).filter(
                 and_(
                     Payment.user_id == current_user.id,
-                    Payment.partnership_level == level_enum,
+                    Payment.partnership_level == level_enum,  # Use enum directly
                     Payment.payment_type == PaymentType.MONTHLY,
                     Payment.payment_status == PaymentStatus.SUCCESS
                 )
@@ -186,8 +186,8 @@ async def create_monthly_subscription(
         next_due = datetime.utcnow() + timedelta(days=30)
         new_payment = Payment(
             user_id=current_user.id,
-            partnership_level=level_enum,
-            plan=request.plan,
+            partnership_level=level_enum,  # Use enum directly
+            plan=request.plan,  # Use enum directly
             amount=float(price),
             payment_type=PaymentType.MONTHLY,
             stripe_payment_id=subscription.id,
@@ -337,7 +337,7 @@ async def deactivate_partnership(payment: Payment, db: AsyncSession):
         result = await db.execute(select(User).filter(User.id == payment.user_id))
         user = result.scalar_one_or_none()
         
-        if user and user.partnership_level == payment.partnership_level.value:
+        if user and user.partnership_level == payment.partnership_level:
             # Create deactivation record
             deactivation = PartnershipDeactivation(
                 user_id=payment.user_id,
@@ -440,61 +440,58 @@ async def get_payment_analytics(
         logger.error(f"Error fetching payment analytics: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch payment analytics: {str(e)}")
 
-@payments_router.post("/pricing", response_model=ThreeTierPricingResponse)
-async def set_three_tier_pricing(
-    request: ThreeTierPricingRequest,
-    current_user: UserResponse = Depends(get_admin_role),
-    db: AsyncSession = Depends(get_db)
-):
-    """Set three-tier pricing for partnership levels (Admin only)"""
-    try:
-        # Check if partnership level already exists
-        result = await db.execute(
-            select(PartnershipLevelModel).filter(PartnershipLevelModel.partnership_name == request.partnership_level)
-        )
-        existing_level = result.scalar_one_or_none()
-        
-        prices = {
-            "1st": request.first_tier_price,
-            "2nd": request.second_tier_price,
-            "3rd": request.third_tier_price
-        }
-        
-        if existing_level:
-            # Update existing pricing
-            existing_level.prices = prices
-            db.add(existing_level)
-            await db.commit()
-            await db.refresh(existing_level)
-            return existing_level
-        else:
-            # Create new pricing
-            new_level = PartnershipLevelModel(
-                partnership_name=request.partnership_level,
-                prices=prices
-            )
-            db.add(new_level)
-            await db.commit()
-            await db.refresh(new_level)
-            return new_level
-            
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error setting three-tier pricing: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to set pricing: {str(e)}")
+# Pricing endpoints removed - use /partnership-levels/ instead
+# GET /partnership-levels/ - Get all partnership levels with pricing
+# POST /partnership-levels/ - Create new partnership level with pricing  
+# PUT /partnership-levels/{id} - Update partnership level pricing
 
-@payments_router.get("/pricing", response_model=List[ThreeTierPricingResponse])
-async def get_three_tier_pricing(
+@payments_router.get("/pricing/{partnership_level}", response_model=dict)
+async def get_payment_pricing(
+    partnership_level: PartnershipLevel,
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get three-tier pricing for all partnership levels"""
+    """Get pricing information for a specific partnership level"""
+    try:
+        result = await db.execute(
+            select(PartnershipLevelModel).filter(PartnershipLevelModel.partnership_name == partnership_level)
+        )
+        level = result.scalar_one_or_none()
+        if not level:
+            raise HTTPException(status_code=404, detail="Partnership level not found")
+        
+        return {
+            "partnership_level": partnership_level.value,
+            "pricing": level.prices,
+            "available_plans": list(level.prices.keys()),
+            "currency": "USD"
+        }
+    except Exception as e:
+        logger.error(f"Error fetching pricing for {partnership_level.value}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch pricing: {str(e)}")
+
+@payments_router.get("/pricing", response_model=List[dict])
+async def get_all_payment_pricing(
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get pricing information for all partnership levels"""
     try:
         result = await db.execute(select(PartnershipLevelModel))
         levels = result.scalars().all()
-        return levels
+        
+        pricing_info = []
+        for level in levels:
+            pricing_info.append({
+                "partnership_level": level.partnership_name,
+                "pricing": level.prices,
+                "available_plans": list(level.prices.keys()),
+                "currency": "USD"
+            })
+        
+        return pricing_info
     except Exception as e:
-        logger.error(f"Error fetching pricing: {str(e)}")
+        logger.error(f"Error fetching all pricing: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch pricing: {str(e)}")
 
 @payments_router.post("/check-overdue", status_code=status.HTTP_200_OK)

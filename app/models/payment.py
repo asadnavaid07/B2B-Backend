@@ -1,7 +1,9 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.types import Enum as SQLEnum
 from app.core.database import Base
+from app.models.registration import PartnershipLevel
 from enum import Enum
 
 class PaymentType(str, Enum):
@@ -24,8 +26,8 @@ class Payment(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    partnership_level = Column(String, nullable=False)
-    plan = Column(String, nullable=False) 
+    partnership_level = Column(SQLEnum(PartnershipLevel), nullable=False)
+    plan = Column(SQLEnum(PaymentPlan), nullable=False) 
     amount = Column(Float, nullable=False)
     payment_type = Column(SQLEnum(PaymentType), nullable=False)
     payment_status = Column(SQLEnum(PaymentStatus), default=PaymentStatus.PENDING)
@@ -33,6 +35,9 @@ class Payment(Base):
     next_payment_due = Column(DateTime, nullable=True)  
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationship back to User
+    user = relationship("User", back_populates="payments")
 
 class PaymentNotification(Base):
     __tablename__ = "payment_notifications"
@@ -52,7 +57,7 @@ class PartnershipDeactivation(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    partnership_level = Column(String, nullable=False)
+    partnership_level = Column(SQLEnum(PartnershipLevel), nullable=False)
     deactivation_reason = Column(String, nullable=False)
     deactivated_at = Column(DateTime(timezone=True), server_default=func.now())
     reactivation_available = Column(String, default="true")  # Using string to match schema

@@ -7,3 +7,4 @@ from .teams import Team, TeamMember
 from .appointment import Appointment
 from .notification import Notification
 from .job import Job
+from .payment import Payment, PaymentNotification, PartnershipDeactivation

@@ -100,12 +100,14 @@ GET /payments/analytics
   - Overdue payments
   - Deactivated partnerships
 
-##### Three-Tier Pricing Management (Admin Only)
+##### Partnership Level Pricing Management (Admin Only)
 ```
-POST /payments/pricing
-GET /payments/pricing
+GET /partnership-levels/
+POST /partnership-levels/
+PUT /partnership-levels/{id}
 ```
-- Set and retrieve three-tier pricing for partnership levels
+- Get, create, and update partnership levels with three-tier pricing
+- Use the partnership-level APIs instead of payment pricing endpoints
 
 ##### Overdue Payment Check (Admin Only)
 ```
