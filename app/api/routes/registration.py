@@ -279,7 +279,7 @@ async def submit_product_catalog(
                 user = result.scalar_one_or_none()
                 if not user:
                    raise HTTPException(status_code=404, detail="User not found")
-                user.registration_step=3
+        user.registration_step=3
         await db.commit()
         logger.info(f"Product catalog stored for {email}")
         return {"message": "Product catalog submitted successfully"}
