@@ -109,6 +109,8 @@ class RegistrationAgreement(Base):
     __tablename__ = "registration_agreements"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    partnership_level = Column(Enum(PartnershipLevel), nullable=False)  # Each agreement is for a specific partnership
     agreement_signed = Column(Boolean, nullable=False, default=False)
     agreement_url = Column(String(500))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

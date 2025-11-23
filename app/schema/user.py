@@ -115,7 +115,7 @@ class UserDashboardResponse(BaseModel):
     visibility_level: Optional[int] = None
     ownership: Optional[Dict[str, List[str]]] = None
     kpi_score: Optional[float] = None         
-    partnership_level: Optional[str] = None  
+    partnership_level: Optional[List[str]] = None  # Array of active partnerships
     retention_period: Optional[int] = 0
     is_registered: Optional[str] = "PENDING"
     registration_step: Optional[int] = 0 

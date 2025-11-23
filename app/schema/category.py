@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List, Dict
 from app.models.registration import PartnershipLevel
+from datetime import datetime
 
 class CategoryCreate(BaseModel):
     name: str = Field(..., min_length=1)
@@ -114,8 +115,21 @@ class ProductCatalog(BaseModel):
     products: List[ProductData]
 
 class AgreementConfirmation(BaseModel):
+    partnership_level: PartnershipLevel  # Required: which partnership this agreement is for
     agreement_signed: bool = True
     agreement_url: Optional[str] = None
+
+class AgreementResponse(BaseModel):
+    id: int
+    user_id: int
+    partnership_level: str
+    agreement_signed: bool
+    agreement_url: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class PersonalInfoDashboardResponse(BaseModel):

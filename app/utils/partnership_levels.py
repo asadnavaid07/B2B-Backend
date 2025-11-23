@@ -34,13 +34,16 @@ def get_retention_expiration(retention_period: str, retention_start_date: dateti
     return retention_start_date + timedelta(days=days)
 
 
-def get_available_partnerships(kpi_score: float, current_level: PartnershipLevel, retention_period: str) -> List[PartnershipLevel]:
-
+def get_available_partnerships(kpi_score: float, current_level, retention_period: str) -> List[PartnershipLevel]:
+    """Get available partnerships for upgrade based on KPI score and retention period"""
     partnership_levels = partnership_dic
+    
+    # Convert current_level to string if it's an enum
+    current_level_str = current_level.value if hasattr(current_level, 'value') else str(current_level)
     
     current_index = 0
     for i in range(len(partnership_levels)):
-        if partnership_levels[i]["level"] == current_level:
+        if partnership_levels[i]["level"] == current_level_str:
             current_index = i
             break
     
@@ -54,7 +57,10 @@ def get_available_partnerships(kpi_score: float, current_level: PartnershipLevel
              return []
              
         if retention_period>=months_till_level[next_level["level"]] and kpi_score >= next_level["min_kpi"]:
-            available.append(next_level["level"])
+            try:
+                available.append(PartnershipLevel(next_level["level"]))
+            except ValueError:
+                pass
         else:
              break
     print(f"Available partnership levels: {available}")
@@ -62,29 +68,45 @@ def get_available_partnerships(kpi_score: float, current_level: PartnershipLevel
     
 
 async def update_partnership_level(user: User, kpi_score: float, db: AsyncSession) -> bool:
+    """Update partnership level based on KPI score - adds new partnership to array if eligible"""
     partnership_levels = partnership_dic
-
     
-    current_level_index = next((i for i, level in enumerate(partnership_levels) if level["level"] == user.partnership_level), 0)
-    current_level = partnership_levels[current_level_index]
-    next_level = partnership_levels[min(current_level_index + 1, len(partnership_levels) - 1)] if current_level_index < len(partnership_levels) - 1 else current_level
+    # Get current partnerships as array
+    current_partnerships = user.partnership_level if user.partnership_level else ["DROP_SHIPPING"]
+    if isinstance(current_partnerships, str):
+        current_partnerships = [current_partnerships]
+    
+    # Find highest current level
+    highest_level_str = "DROP_SHIPPING"
+    highest_index = 0
+    for i, level_dict in enumerate(partnership_levels):
+        if level_dict["level"] in current_partnerships:
+            if i > highest_index:
+                highest_index = i
+                highest_level_str = level_dict["level"]
+    
+    current_level = partnership_levels[highest_index]
+    next_level = partnership_levels[min(highest_index + 1, len(partnership_levels) - 1)] if highest_index < len(partnership_levels) - 1 else current_level
     
     current_date = datetime.utcnow()
     if kpi_score >= next_level["min_kpi"] and is_retention_period_over(user.retention_period, user.retention_start_date or current_date, current_date):
-        user.partnership_level = next_level["level"]
-        user.retention_period = next_level["retention"]
-        user.retention_start_date = datetime.utcnow()
-        
-        # Create notification for user
-        notification = Notification(
-            admin_id=user.id,
-            message=f"Congratulations! Your partnership level has been upgraded to {next_level['level']}.",
-            target_type=NotificationTargetType.ALL_USERS,
-            visibility=True,
-            created_at=datetime.utcnow()
-        )
-        db.add(notification)
-        return True
+        # Add new partnership to array if not already present
+        if next_level["level"] not in current_partnerships:
+            current_partnerships.append(next_level["level"])
+            user.partnership_level = current_partnerships
+            user.retention_period = next_level["retention"]
+            user.retention_start_date = datetime.utcnow()
+            
+            # Create notification for user
+            notification = Notification(
+                admin_id=user.id,
+                message=f"Congratulations! Your partnership level has been upgraded to {next_level['level']}.",
+                target_type=NotificationTargetType.ALL_USERS,
+                visibility=True,
+                created_at=datetime.utcnow()
+            )
+            db.add(notification)
+            return True
     return False
 
 

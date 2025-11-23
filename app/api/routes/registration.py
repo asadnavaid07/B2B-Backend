@@ -17,7 +17,7 @@ from datetime import datetime
 from app.services.auth.jwt import get_current_user
 from app.schema.user import UserResponse
 from app.utils.categories import PRODUCT_CATEGORIES
-from app.schema.category import LevelSelection, PersonalInfo, ProductCatalog, AgreementConfirmation
+from app.schema.category import LevelSelection, PersonalInfo, ProductCatalog, AgreementConfirmation, AgreementResponse
 load_dotenv()
 logger = logging.getLogger(__name__)
 
@@ -289,92 +289,93 @@ async def submit_product_catalog(
         raise HTTPException(status_code=500, detail=f"Failed to store product catalog: {str(e)}")
 
 
-@registration_router.post("/agreement")
+@registration_router.post("/agreement", response_model=AgreementResponse)
 async def confirm_agreement(
     agreement: AgreementConfirmation,
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """
+    Create or update agreement for a specific partnership.
+    Each partnership requires its own agreement.
+    """
     email = current_user.email.lower().strip()
-    logger.debug(f"Agreement confirmation for {email}")
-    result=await db.execute(Select(RegistrationAgreement).filter(RegistrationAgreement.user_id==current_user.id))
-    exisiting_user=result.scalars().first()
-    if exisiting_user:
-        raise HTTPException(status_code=400, detail="User already has registration levels")
-
+    logger.debug(f"Agreement confirmation for {email}, partnership: {agreement.partnership_level.value}")
+    
     if not agreement.agreement_signed:
         raise HTTPException(status_code=400, detail="Agreement must be signed")
 
     try:
-
-        new_agreement = RegistrationAgreement(
-            user_id=current_user.id,
-            agreement_signed=agreement.agreement_signed,
-            agreement_url=agreement.agreement_url
-        )
-        db.add(new_agreement)
+        # Check if agreement already exists for this partnership
         result = await db.execute(
-        Select(User).filter(User.id == current_user.id))
-        user = result.scalar_one_or_none()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        user.registration_step=5
-        await db.commit()
-        logger.info(f"Agreement confirmed for {email}")
-
-        # Check if all steps are complete
-        level_result = await db.execute(select(RegistrationLevel).filter(RegistrationLevel.user_id == current_user.id))
-        info_result = await db.execute(select(RegistrationInfo).filter(RegistrationInfo.user_id == current_user.id))
-        product_result = await db.execute(select(RegistrationProduct).filter(RegistrationProduct.user_id == current_user.id))
-        category_result = await db.execute(select(ProductCategory).filter(ProductCategory.user_id == current_user.id))
-        document_result = await db.execute(select(Document).filter(Document.user_id == current_user.id))
+            select(RegistrationAgreement).filter(
+                RegistrationAgreement.user_id == current_user.id,
+                RegistrationAgreement.partnership_level == agreement.partnership_level
+            )
+        )
+        existing_agreement = result.scalar_one_or_none()
         
-        if all([
-            level_result.scalars().first(),
-            info_result.scalars().first(),
-            product_result.scalars().first(),
-            category_result.scalars().first(),
-            document_result.scalars().first()
-        ]):
-            user_result = await db.execute(select(User).filter(User.id == current_user.id))
-            user = user_result.scalar_one_or_none()
-            user.is_active = True
-            db.add(user)
-            user.registration_step=6
+        if existing_agreement:
+            # Update existing agreement
+            existing_agreement.agreement_signed = agreement.agreement_signed
+            existing_agreement.agreement_url = agreement.agreement_url
+            db.add(existing_agreement)
             await db.commit()
-            logger.info(f"Registration completed for {email}")
-            return {"message": "Registration completed successfully"}
+            await db.refresh(existing_agreement)
+            logger.info(f"Agreement updated for {email}, partnership: {agreement.partnership_level.value}")
+            return existing_agreement
+        else:
+            # Create new agreement
+            new_agreement = RegistrationAgreement(
+                user_id=current_user.id,
+                partnership_level=agreement.partnership_level,
+                agreement_signed=agreement.agreement_signed,
+                agreement_url=agreement.agreement_url
+            )
+            db.add(new_agreement)
+            await db.commit()
+            await db.refresh(new_agreement)
+            logger.info(f"Agreement confirmed for {email}, partnership: {agreement.partnership_level.value}")
+            return new_agreement
         
-        return {"message": "Agreement confirmed successfully"}
     except Exception as e:
         await db.rollback()
         logger.error(f"Error storing agreement for {email}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to store agreement: {str(e)}")
     
 
-@registration_router.put("/agreement-url")
+@registration_router.put("/agreement-url/{partnership_level}", response_model=AgreementResponse)
 async def update_agreement_url(
-    agreement_url:str,
+    partnership_level: PartnershipLevel,
+    agreement_url: str,
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """Update agreement URL for a specific partnership"""
     email = current_user.email.lower().strip()
-    logger.debug(f"Updating agreement URL for {email}")
+    logger.debug(f"Updating agreement URL for {email}, partnership: {partnership_level.value}")
 
     result = await db.execute(
-        select(RegistrationAgreement).filter(RegistrationAgreement.user_id == current_user.id)
+        select(RegistrationAgreement).filter(
+            RegistrationAgreement.user_id == current_user.id,
+            RegistrationAgreement.partnership_level == partnership_level
+        )
     )
-    existing_agreement = result.scalars().first()
+    existing_agreement = result.scalar_one_or_none()
 
     if not existing_agreement:
-        raise HTTPException(status_code=404, detail="No existing agreement found to update")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No agreement found for partnership {partnership_level.value}"
+        )
 
     try:
         existing_agreement.agreement_url = agreement_url
         db.add(existing_agreement)
         await db.commit()
-        logger.info(f"Agreement URL updated successfully for {email}")
-        return {"message": "Agreement URL updated successfully"}
+        await db.refresh(existing_agreement)
+        logger.info(f"Agreement URL updated successfully for {email}, partnership: {partnership_level.value}")
+        return existing_agreement
     except Exception as e:
         await db.rollback()
         logger.error(f"Error updating agreement URL for {email}: {str(e)}")
@@ -396,17 +397,47 @@ async def get_registration_info(
         raise HTTPException(status_code=500, detail=f"Failed to fetch registration info: {str(e)}")
     
 
-@registration_router.get("/agreement", status_code=200)
-async def get_agreement(
-        current_user:UserResponse=Depends(get_current_user),
-        db:AsyncSession=Depends(get_db)):
+@registration_router.get("/agreements", response_model=List[AgreementResponse])
+async def get_all_agreements(
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all agreements for the current user (one per partnership)"""
     try:
-        result=await db.execute(Select(RegistrationAgreement).filter(RegistrationAgreement.user_id==current_user.id))
-        agreement = result.scalars().first()
+        result = await db.execute(
+            select(RegistrationAgreement).filter(
+                RegistrationAgreement.user_id == current_user.id
+            ).order_by(RegistrationAgreement.created_at.desc())
+        )
+        agreements = result.scalars().all()
+        return agreements
+    except Exception as e:
+        logger.error(f"Error fetching agreements for {current_user.email}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch agreements: {str(e)}")
+
+@registration_router.get("/agreement/{partnership_level}", response_model=AgreementResponse)
+async def get_agreement(
+    partnership_level: PartnershipLevel,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get agreement for a specific partnership"""
+    try:
+        result = await db.execute(
+            select(RegistrationAgreement).filter(
+                RegistrationAgreement.user_id == current_user.id,
+                RegistrationAgreement.partnership_level == partnership_level
+            )
+        )
+        agreement = result.scalar_one_or_none()
         if not agreement:
-            raise HTTPException(status_code=404, detail="Agreement not found")  
-        
-        return agreement.agreement_url
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Agreement not found for partnership {partnership_level.value}"
+            )
+        return agreement
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching agreement for {current_user.email}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch agreement: {str(e)}")

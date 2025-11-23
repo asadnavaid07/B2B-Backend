@@ -12,6 +12,7 @@ from app.models.notification import Notification, NotificationTargetType
 import logging
 from datetime import datetime, timedelta
 from app.utils.partnership_levels import get_available_partnerships, get_retention_expiration, is_retention_period_over, partnership_level,partnership_dic, update_partnership_level
+from app.utils.partnership_level_mapping import get_partnership_level_group, get_level_number
 logger = logging.getLogger(__name__)
 verification_router = APIRouter(prefix="/verification", tags=["verification"])
 
@@ -133,8 +134,13 @@ async def get_current_partnership(
         retention_expiration = get_retention_expiration(user.retention_period, user.retention_start_date)
         is_retention_expired = retention_expiration and datetime.utcnow() >= retention_expiration if retention_expiration else False
         
+        # Handle partnership_level as array
+        partnership_levels = user.partnership_level if user.partnership_level else ["DROP_SHIPPING"]
+        if isinstance(partnership_levels, str):
+            partnership_levels = [partnership_levels]
+        
         return {
-            "partnership_level": user.partnership_level if user.partnership_level else None,
+            "partnership_level": partnership_levels,
             "kpi_score": user.kpi_score,
             "retention_period": user.retention_period,
             "retention_expiration": retention_expiration if retention_expiration else None,
@@ -164,13 +170,31 @@ async def get_available_partnerships_api(
             logger.error(f"User not found: {current_user.email}")
             raise HTTPException(status_code=404, detail="User not found")
         
-        # Get available partnerships
-        available_partnerships = get_available_partnerships(user.kpi_score, user.partnership_level, user.retention_period)
+        # Handle partnership_level as array - get highest level for KPI calculations
+        partnership_levels = user.partnership_level if user.partnership_level else ["DROP_SHIPPING"]
+        if isinstance(partnership_levels, str):
+            partnership_levels = [partnership_levels]
+        
+        # Get highest partnership level for KPI-based upgrade calculations
+        highest_level = PartnershipLevel.DROP_SHIPPING
+        highest_level_num = 0
+        for p_str in partnership_levels:
+            try:
+                p = PartnershipLevel(p_str) if isinstance(p_str, str) else p_str
+                level_num = get_level_number(get_partnership_level_group(p))
+                if level_num > highest_level_num:
+                    highest_level_num = level_num
+                    highest_level = p
+            except:
+                continue
+        
+        # Get available partnerships based on highest level
+        available_partnerships = get_available_partnerships(user.kpi_score, highest_level, user.retention_period)
         
         return {
-            "available_partnerships": available_partnerships,
+            "available_partnerships": [p.value for p in available_partnerships],
             "kpi_score": user.kpi_score,
-            "current_partnership_level": user.partnership_level,
+            "current_partnership_level": partnership_levels,
             "retention_period": user.retention_period,
             "retention_expiration": get_retention_expiration(user.retention_period, user.retention_start_date) if user.retention_start_date else None
         }
@@ -224,11 +248,29 @@ async def get_kpi_score(
         retention_expiration = get_retention_expiration(user.retention_period, user.retention_start_date)
         is_retention_expired = retention_expiration and datetime.utcnow() >= retention_expiration if retention_expiration else False
         
-        # Get available partnerships
-        available_partnerships = get_available_partnerships(kpi_score, user.partnership_level, user.retention_period, user.retention_start_date)
+        # Handle partnership_level as array - get highest level for KPI calculations
+        partnership_levels = user.partnership_level if user.partnership_level else ["DROP_SHIPPING"]
+        if isinstance(partnership_levels, str):
+            partnership_levels = [partnership_levels]
+        
+        # Get highest partnership level for KPI-based upgrade calculations
+        highest_level = PartnershipLevel.DROP_SHIPPING
+        highest_level_num = 0
+        for p_str in partnership_levels:
+            try:
+                p = PartnershipLevel(p_str) if isinstance(p_str, str) else p_str
+                level_num = get_level_number(get_partnership_level_group(p))
+                if level_num > highest_level_num:
+                    highest_level_num = level_num
+                    highest_level = p
+            except:
+                continue
+        
+        # Get available partnerships based on highest level
+        available_partnerships = get_available_partnerships(kpi_score, highest_level, user.retention_period)
         
         logger.info(f"KPI score for {current_user.email}: kpi_score={kpi_score}, "
-                   f"partnership_level={user.partnership_level}, "
+                   f"partnership_level={partnership_levels}, "
                    f"retention_period={user.retention_period}, "
                    f"retention_expiration={retention_expiration}, "
                    f"partnership_updated={partnership_updated}, "
@@ -236,7 +278,7 @@ async def get_kpi_score(
         
         return {
             "kpi_score": kpi_score,
-            "partnership_level": user.partnership_level.value,
+            "partnership_level": partnership_levels,
             "retention_period": user.retention_period,
             "retention_expiration": retention_expiration if retention_expiration else None,
             "is_retention_expired": is_retention_expired,
@@ -255,13 +297,23 @@ async def update_partnership(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-
+    """Add a partnership to user's active partnerships array"""
     result = await db.execute(select(User).filter(User.id == current_user.id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user.partnership_level = partnership_level.value
+    # Get current partnerships
+    current = user.partnership_level if user.partnership_level else ["DROP_SHIPPING"]
+    if isinstance(current, str):
+        current = [current]
+    
+    # Add new partnership if not already present
+    partnership_str = partnership_level.value
+    if partnership_str not in current:
+        current.append(partnership_str)
+    
+    user.partnership_level = current
     db.add(user)            
     await db.commit()      
     await db.refresh(user)  

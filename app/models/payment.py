@@ -7,8 +7,9 @@ from app.models.registration import PartnershipLevel
 from enum import Enum
 
 class PaymentType(str, Enum):
-    LATERAL = "LATERAL"
-    MONTHLY = "MONTHLY"
+    LATERAL = "LATERAL"  # Switching between partnerships in same level
+    MONTHLY = "MONTHLY"  # Recurring monthly subscription
+    REGISTRATION = "REGISTRATION"  # Moving from lower level to higher level
 
 class PaymentStatus(str, Enum):
     PENDING = "PENDING"
@@ -17,9 +18,10 @@ class PaymentStatus(str, Enum):
     DELINQUENT = "DELINQUENT"
 
 class PaymentPlan(str, Enum):
-    BASIC = "BASIC"
-    PREMIUM = "PREMIUM"
-    ENTERPRISE = "ENTERPRISE"
+    """Three monthly subscription tiers for each partnership"""
+    FIRST = "1st"  # First tier
+    SECOND = "2nd"  # Second tier
+    THIRD = "3rd"  # Third tier
 
 class Payment(Base):
     __tablename__ = "payments"
@@ -31,7 +33,8 @@ class Payment(Base):
     amount = Column(Float, nullable=False)
     payment_type = Column(SQLEnum(PaymentType), nullable=False)
     payment_status = Column(SQLEnum(PaymentStatus), default=PaymentStatus.PENDING)
-    stripe_payment_id = Column(String, nullable=True) 
+    stripe_payment_id = Column(String, nullable=True)
+    stripe_customer_id = Column(String, nullable=True)
     next_payment_due = Column(DateTime, nullable=True)  
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

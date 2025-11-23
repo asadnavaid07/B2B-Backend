@@ -10,6 +10,7 @@ from app.api.routes.user import user_router
 from app.api.routes.job import jobs_router
 from app.api.routes.notification import notification_router
 from app.api.routes.partnership_levels import partnership_level_router
+from app.api.routes.partnership_fees import partnership_fees_router
 from app.api.routes.retention import retention_router
 from app.api.routes.payments import payments_router
 
@@ -25,6 +26,7 @@ router.include_router(user_router, tags=["user"])
 router.include_router(jobs_router, tags=["jobs"])
 router.include_router(notification_router, tags=["notifications"])
 router.include_router(partnership_level_router, tags=["partnership-levels"])
+router.include_router(partnership_fees_router, tags=["admin-partnership-fees"])
 router.include_router(retention_router, tags=["retention"])
 router.include_router(payments_router, tags=["payments"])
 

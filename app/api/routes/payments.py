@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.payment import Payment, PaymentType, PaymentStatus, PaymentPlan, PaymentNotification, PartnershipDeactivation
 from app.models.partnership_pricing import PartnershipLevelModel
+from app.models.partnership_fees import PartnershipFees, PartnershipLevelGroup
 from app.services.auth.jwt import get_current_user
 from app.schema.user import UserResponse, UserRole
 from app.schema.payment import (
@@ -17,106 +18,42 @@ from app.schema.payment import (
 from app.models.user import User
 from app.models.notification import Notification, NotificationTargetType
 from app.models.registration import PartnershipLevel
+from app.utils.partnership_level_mapping import (
+    get_partnership_level_group, are_in_same_level, is_upward_movement,
+    get_level_number
+)
+from app.utils.lateral_access_rules import can_switch_laterally as validate_lateral_switch
 from datetime import datetime, timedelta
-from app.utils.partnership_levels import partnership_level
 from typing import List, Optional
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 payments_router = APIRouter(prefix="/payments", tags=["payments"])
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
-partnership_levels = partnership_level
-
 async def get_admin_role(current_user: UserResponse = Depends(get_current_user)):
     if current_user.role not in [UserRole.super_admin, UserRole.sub_admin]:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
-@payments_router.post("/lateral", response_model=PaymentResponse)
-async def create_lateral_payment(
-    request: PaymentRequest,
-    current_user: UserResponse = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    try:
-        level_enum = request.partnership_level
-        
-        # Check if lateral entry is allowed for this partnership level
-        if level_enum == PartnershipLevel.DROP_SHIPPING:
-            raise HTTPException(status_code=400, detail="No lateral entry available for DROP_SHIPPING")
-        
-        # Last three partnership levels don't allow lateral entry
-        last_three_levels = [
-            PartnershipLevel.MUSEUM_INSTITUTIONAL,
-            PartnershipLevel.NGO_GOVERNMENT, 
-            PartnershipLevel.TECHNOLOGY_PARTNERSHIP
-        ]
-        if level_enum in last_three_levels:
-            raise HTTPException(status_code=400, detail="No lateral entry available for the last three partnership levels")
+def get_user_active_partnerships(user: User) -> List[PartnershipLevel]:
+    """Get list of active partnerships from user's partnership_level JSON array"""
+    if user.partnership_level is None:
+        return [PartnershipLevel.DROP_SHIPPING]
+    if isinstance(user.partnership_level, list):
+        return [PartnershipLevel(p) if isinstance(p, str) else p for p in user.partnership_level]
+    if isinstance(user.partnership_level, str):
+        return [PartnershipLevel(user.partnership_level)]
+    return [PartnershipLevel.DROP_SHIPPING]
 
-        # Check if user already has a lateral payment for this partnership level
-        existing_payment = await db.execute(
-            select(Payment).filter(
-                and_(
-                    Payment.user_id == current_user.id,
-                    Payment.partnership_level == level_enum,  # Use enum directly
-                    Payment.payment_type == PaymentType.LATERAL,
-                    Payment.payment_status == PaymentStatus.SUCCESS
-                )
-            )
-        )
-        if existing_payment.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Lateral entry payment already completed for this partnership level")
-
-        result = await db.execute(
-            select(PartnershipLevelModel).filter(PartnershipLevelModel.partnership_name == level_enum)
-        )
-        level = result.scalar_one_or_none()
-        if not level:
-            raise HTTPException(status_code=404, detail="Partnership level not found")
-        
-        price = level.prices.get(request.plan.value)
-        if price is None:
-            raise HTTPException(status_code=400, detail="Invalid plan for this partnership level")
-        
-        amount = int(float(price) * 100)  # Convert to cents
-        
-        intent = stripe.PaymentIntent.create(
-            amount=amount,
-            currency="usd",
-            payment_method_types=["card"],
-            metadata={
-                "user_id": str(current_user.id), 
-                "partnership_level": level_enum.value, 
-                "plan": request.plan.value, 
-                "type": "lateral"
-            }
-        )
-        
-        new_payment = Payment(
-            user_id=current_user.id,
-            partnership_level=level_enum,  # Use enum directly
-            plan=request.plan,  # Use enum directly
-            amount=float(price),
-            payment_type=PaymentType.LATERAL,
-            stripe_payment_id=intent.id
-        )
-        db.add(new_payment)
-        await db.commit()
-        
-        return PaymentResponse(
-            payment_intent_id=intent.id,
-            client_secret=intent.client_secret,
-            amount=float(price),
-            status="pending"
-        )
-    except stripe.error.StripeError as e:
-        raise HTTPException(status_code=400, detail=str(e.user_message))
-    except Exception as e:
-        logger.error(f"Error creating lateral payment: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to create lateral payment: {str(e)}")
+def add_partnership_to_user(user: User, partnership: PartnershipLevel):
+    """Add a partnership to user's active partnerships array"""
+    current = get_user_active_partnerships(user)
+    if partnership not in current:
+        current.append(partnership)
+    user.partnership_level = [p.value for p in current]
 
 @payments_router.post("/monthly", response_model=SubscriptionResponse)
 async def create_monthly_subscription(
@@ -124,33 +61,52 @@ async def create_monthly_subscription(
     current_user: UserResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """
+    Create monthly recurring subscription for a partnership.
+    Each partnership has 3 tiers: 1st, 2nd, 3rd
+    """
     try:
-        level_enum = request.partnership_level
+        # Get user from database
+        result = await db.execute(select(User).filter(User.id == current_user.id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
         
-        # Check if user already has an active monthly subscription for this partnership level
+        partnership = request.partnership_level
+        
+        # Check if user already has an active monthly subscription for this partnership
         existing_subscription = await db.execute(
             select(Payment).filter(
                 and_(
                     Payment.user_id == current_user.id,
-                    Payment.partnership_level == level_enum,  # Use enum directly
+                    Payment.partnership_level == partnership,
                     Payment.payment_type == PaymentType.MONTHLY,
                     Payment.payment_status == PaymentStatus.SUCCESS
                 )
             )
         )
         if existing_subscription.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Monthly subscription already exists for this partnership level")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Monthly subscription already exists for {partnership.value}"
+            )
 
+        # Get pricing for this partnership
         result = await db.execute(
-            select(PartnershipLevelModel).filter(PartnershipLevelModel.partnership_name == level_enum)
+            select(PartnershipLevelModel).filter(PartnershipLevelModel.partnership_name == partnership)
         )
         level = result.scalar_one_or_none()
         if not level:
-            raise HTTPException(status_code=404, detail="Partnership level not found")
+            raise HTTPException(status_code=404, detail=f"Pricing not found for {partnership.value}")
         
-        price = level.prices.get(request.plan.value)
+        # Get price for the selected tier (1st, 2nd, or 3rd)
+        price_key = request.plan.value  # "1st", "2nd", or "3rd"
+        price = level.prices.get(price_key)
         if price is None:
-            raise HTTPException(status_code=400, detail="Invalid plan for this partnership level")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid plan {price_key} for partnership {partnership.value}"
+            )
         
         amount = int(float(price) * 100)  # Convert to cents
         
@@ -161,7 +117,7 @@ async def create_monthly_subscription(
         )
         
         product = stripe.Product.create(
-            name=f"{level_enum.value} - {request.plan.value}",
+            name=f"{partnership.value} - {price_key} tier",
             type="service"
         )
         
@@ -177,8 +133,8 @@ async def create_monthly_subscription(
             items=[{"price": stripe_price.id}],
             metadata={
                 "user_id": str(current_user.id), 
-                "partnership_level": level_enum.value, 
-                "plan": request.plan.value, 
+                "partnership_level": partnership.value, 
+                "plan": price_key, 
                 "type": "monthly"
             }
         )
@@ -186,8 +142,8 @@ async def create_monthly_subscription(
         next_due = datetime.utcnow() + timedelta(days=30)
         new_payment = Payment(
             user_id=current_user.id,
-            partnership_level=level_enum,  # Use enum directly
-            plan=request.plan,  # Use enum directly
+            partnership_level=partnership,
+            plan=request.plan,
             amount=float(price),
             payment_type=PaymentType.MONTHLY,
             stripe_payment_id=subscription.id,
@@ -195,6 +151,7 @@ async def create_monthly_subscription(
             next_payment_due=next_due
         )
         db.add(new_payment)
+        # Note: Partnership will be added to user's array when invoice.paid webhook is received
         await db.commit()
         
         return SubscriptionResponse(
@@ -204,10 +161,237 @@ async def create_monthly_subscription(
             next_payment_due=next_due
         )
     except stripe.error.StripeError as e:
+        await db.rollback()
         raise HTTPException(status_code=400, detail=str(e.user_message))
+    except HTTPException:
+        raise
     except Exception as e:
+        await db.rollback()
         logger.error(f"Error creating monthly subscription: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create monthly subscription: {str(e)}")
+
+@payments_router.post("/lateral", response_model=PaymentResponse)
+async def create_lateral_payment(
+    request: PaymentRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Create lateral payment for switching between partnerships in the same level.
+    
+    Lateral tiers are fixed per partnership:
+    - When on DROP_SHIPPING: 1st tier = CONSIGNMENT, 2nd tier = WHOLESALE, 3rd tier = IMPORT_EXPORT
+    - When on CONSIGNMENT: 1st tier = DROP_SHIPPING, 2nd tier = WHOLESALE, 3rd tier = IMPORT_EXPORT
+    - And so on for all partnerships in each level
+    
+    The 'plan' field represents the lateral tier (1st, 2nd, or 3rd), not monthly subscription tier.
+    Requires from_partnership to be specified.
+    """
+    try:
+        if not request.from_partnership:
+            raise HTTPException(status_code=400, detail="from_partnership is required for lateral payments")
+        
+        # Get user from database
+        result = await db.execute(select(User).filter(User.id == current_user.id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        from_partnership = request.from_partnership
+        to_partnership = request.partnership_level
+        
+        # Check if user has the from_partnership active
+        active_partnerships = get_user_active_partnerships(user)
+        if from_partnership not in active_partnerships:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You must have {from_partnership.value} active to switch laterally"
+            )
+        
+        # Check if user already has the to_partnership active
+        if to_partnership in active_partnerships:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You already have {to_partnership.value} active"
+            )
+        
+        # Check if both partnerships are in the same level
+        if not are_in_same_level(from_partnership, to_partnership):
+            raise HTTPException(
+                status_code=400,
+                detail="Lateral payment only allowed for partnerships in the same level"
+            )
+        
+        # Validate lateral tier: The plan field represents the lateral tier (1st, 2nd, 3rd)
+        # Check if the requested partnership matches the lateral tier mapping
+        can_switch, error_message = validate_lateral_switch(
+            from_partnership,
+            to_partnership,
+            request.plan  # This is the lateral tier (1st, 2nd, or 3rd)
+        )
+        if not can_switch:
+            raise HTTPException(status_code=400, detail=error_message)
+        
+        # Get lateral fee for this level and tier
+        level_group = get_partnership_level_group(to_partnership)
+        result = await db.execute(
+            select(PartnershipFees).filter(PartnershipFees.level_group == level_group)
+        )
+        fees = result.scalar_one_or_none()
+        if not fees:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Lateral fees not configured for level {level_group.value}"
+            )
+        
+        # Get the lateral fee for the specific tier (1st, 2nd, or 3rd)
+        tier_key = request.plan.value  # "1st", "2nd", or "3rd"
+        lateral_fee = fees.lateral_fees.get(tier_key)
+        if lateral_fee is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Lateral fee for tier {tier_key} not configured for level {level_group.value}"
+            )
+        
+        amount = int(float(lateral_fee) * 100)  # Convert to cents
+        
+        intent = stripe.PaymentIntent.create(
+            amount=amount,
+            currency="usd",
+            payment_method_types=["card"],
+            metadata={
+                "user_id": str(current_user.id), 
+                "from_partnership": from_partnership.value,
+                "to_partnership": to_partnership.value, 
+                "type": "lateral"
+            }
+        )
+        
+        new_payment = Payment(
+            user_id=current_user.id,
+            partnership_level=to_partnership,
+            plan=request.plan,  # Lateral tier (1st, 2nd, or 3rd)
+            amount=float(lateral_fee),
+            payment_type=PaymentType.LATERAL,
+            stripe_payment_id=intent.id
+        )
+        db.add(new_payment)
+        await db.commit()
+        
+        return PaymentResponse(
+            payment_intent_id=intent.id,
+            client_secret=intent.client_secret,
+            amount=float(lateral_fee),
+            status="pending"
+        )
+    except stripe.error.StripeError as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e.user_message))
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error creating lateral payment: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create lateral payment: {str(e)}")
+
+@payments_router.post("/registration", response_model=PaymentResponse)
+async def create_registration_payment(
+    request: PaymentRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Create registration payment for moving from a lower level to a higher level.
+    Requires from_partnership to be specified.
+    Registration fees are only for: Level 1→2, Level 2→3, Level 3→4
+    """
+    try:
+        if not request.from_partnership:
+            raise HTTPException(status_code=400, detail="from_partnership is required for registration payments")
+        
+        # Get user from database
+        result = await db.execute(select(User).filter(User.id == current_user.id))
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        from_partnership = request.from_partnership
+        to_partnership = request.partnership_level
+        
+        # Check if this is an upward movement
+        if not is_upward_movement(from_partnership, to_partnership):
+            raise HTTPException(
+                status_code=400, 
+                detail="Registration payment only allowed for upward movement to higher level"
+            )
+        
+        # Check if user has the from_partnership active
+        active_partnerships = get_user_active_partnerships(user)
+        if from_partnership not in active_partnerships:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You must have {from_partnership.value} active to upgrade"
+            )
+        
+        # Check if user already has the to_partnership active
+        if to_partnership in active_partnerships:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You already have {to_partnership.value} active"
+            )
+        
+        # Get registration fee for the target level
+        to_level_group = get_partnership_level_group(to_partnership)
+        result = await db.execute(
+            select(PartnershipFees).filter(PartnershipFees.level_group == to_level_group)
+        )
+        fees = result.scalar_one_or_none()
+        if not fees:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Registration fee not configured for level {to_level_group.value}"
+            )
+        
+        amount = int(float(fees.registration_fee) * 100)  # Convert to cents
+        
+        intent = stripe.PaymentIntent.create(
+            amount=amount,
+            currency="usd",
+            payment_method_types=["card"],
+            metadata={
+                "user_id": str(current_user.id), 
+                "from_partnership": from_partnership.value,
+                "to_partnership": to_partnership.value, 
+                "type": "registration"
+            }
+        )
+        
+        new_payment = Payment(
+            user_id=current_user.id,
+            partnership_level=to_partnership,
+            plan=PaymentPlan.FIRST,  # Not applicable for registration, but required field
+            amount=float(fees.registration_fee),
+            payment_type=PaymentType.REGISTRATION,
+            stripe_payment_id=intent.id
+        )
+        db.add(new_payment)
+        await db.commit()
+        
+        return PaymentResponse(
+            payment_intent_id=intent.id,
+            client_secret=intent.client_secret,
+            amount=float(fees.registration_fee),
+            status="pending"
+        )
+    except stripe.error.StripeError as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e.user_message))
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error creating registration payment: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create registration payment: {str(e)}")
 
 @payments_router.post("/webhook", status_code=status.HTTP_200_OK)
 async def stripe_webhook(
@@ -220,17 +404,28 @@ async def stripe_webhook(
         if event.type == "payment_intent.succeeded":
             payment_intent = event.data.object
             metadata = payment_intent.metadata
-            if metadata.get("type") == "lateral":
-                result = await db.execute(
-                    select(Payment).filter(Payment.stripe_payment_id == payment_intent.id)
-                )
-                payment = result.scalar_one_or_none()
-                if payment:
-                    payment.payment_status = PaymentStatus.SUCCESS
-                    db.add(payment)
-                    await db.commit()
-                    logger.info(f"Lateral payment succeeded for user_id={metadata.get('user_id')}")
-                    
+            payment_type = metadata.get("type")
+            
+            result = await db.execute(
+                select(Payment).filter(Payment.stripe_payment_id == payment_intent.id)
+            )
+            payment = result.scalar_one_or_none()
+            if payment:
+                payment.payment_status = PaymentStatus.SUCCESS
+                
+                # Get user and update their active partnerships
+                user_result = await db.execute(select(User).filter(User.id == payment.user_id))
+                user = user_result.scalar_one_or_none()
+                
+                if user and payment_type in ["lateral", "registration"]:
+                    # Add the new partnership to user's active partnerships
+                    add_partnership_to_user(user, payment.partnership_level)
+                    db.add(user)
+                
+                db.add(payment)
+                await db.commit()
+                logger.info(f"{payment_type} payment succeeded for user_id={metadata.get('user_id')}")
+                
         elif event.type == "invoice.paid":
             subscription = event.data.object.subscription
             result = await db.execute(
@@ -240,9 +435,19 @@ async def stripe_webhook(
             if payment:
                 payment.payment_status = PaymentStatus.SUCCESS
                 payment.next_payment_due = datetime.utcnow() + timedelta(days=30)
+                
+                # Get user and add partnership to active partnerships array
+                user_result = await db.execute(select(User).filter(User.id == payment.user_id))
+                user = user_result.scalar_one_or_none()
+                
+                if user:
+                    # Add the partnership to user's active partnerships if not already present
+                    add_partnership_to_user(user, payment.partnership_level)
+                    db.add(user)
+                
                 db.add(payment)
                 await db.commit()
-                logger.info(f"Monthly payment succeeded for subscription={subscription}")
+                logger.info(f"Monthly payment succeeded for subscription={subscription}, partnership {payment.partnership_level.value} added to user {payment.user_id}")
                 
         elif event.type == "invoice.payment_failed":
             subscription = event.data.object.subscription
@@ -252,7 +457,6 @@ async def stripe_webhook(
             payment = result.scalar_one_or_none()
             if payment:
                 payment.payment_status = PaymentStatus.FAILED
-                payment.failure_reason = "Payment failed via Stripe webhook"
                 db.add(payment)
                 
                 # Calculate days overdue
@@ -278,7 +482,6 @@ async def stripe_webhook(
 async def send_payment_notification(payment: Payment, days_delinquent: int, db: AsyncSession):
     """Send payment notifications based on days overdue"""
     try:
-        # Check if notification already sent for this period
         notification_type = None
         message = ""
         
@@ -321,7 +524,8 @@ async def send_payment_notification(payment: Payment, days_delinquent: int, db: 
                     user_id=payment.user_id,
                     payment_id=payment.id,
                     notification_type=notification_type,
-                    days_overdue=days_delinquent
+                    days_overdue=days_delinquent,
+                    message=message
                 )
                 db.add(payment_notification)
                 
@@ -333,11 +537,19 @@ async def send_payment_notification(payment: Payment, days_delinquent: int, db: 
 async def deactivate_partnership(payment: Payment, db: AsyncSession):
     """Deactivate partnership after 30 days of non-payment"""
     try:
-        # Get user
         result = await db.execute(select(User).filter(User.id == payment.user_id))
         user = result.scalar_one_or_none()
         
-        if user and user.partnership_level == payment.partnership_level:
+        if user:
+            # Remove partnership from user's active partnerships
+            active_partnerships = get_user_active_partnerships(user)
+            if payment.partnership_level in active_partnerships:
+                active_partnerships.remove(payment.partnership_level)
+                # Ensure user has at least DROP_SHIPPING
+                if not active_partnerships:
+                    active_partnerships = [PartnershipLevel.DROP_SHIPPING]
+                user.partnership_level = [p.value for p in active_partnerships]
+            
             # Create deactivation record
             deactivation = PartnershipDeactivation(
                 user_id=payment.user_id,
@@ -345,17 +557,12 @@ async def deactivate_partnership(payment: Payment, db: AsyncSession):
                 deactivation_reason="Non-payment after 30 days"
             )
             db.add(deactivation)
-            
-            # Revert user to base level
-            user.partnership_level = PartnershipLevel.DROP_SHIPPING.value
             db.add(user)
             
             logger.info(f"Partnership deactivated for user_id={payment.user_id}")
             
     except Exception as e:
         logger.error(f"Error deactivating partnership: {str(e)}")
-
-# Additional endpoints for payment management
 
 @payments_router.get("/history", response_model=List[PaymentHistoryResponse])
 async def get_payment_history(
@@ -396,11 +603,9 @@ async def get_payment_analytics(
 ):
     """Get payment analytics for admin"""
     try:
-        # Get all payments
         payments_result = await db.execute(select(Payment))
         all_payments = payments_result.scalars().all()
         
-        # Get overdue payments
         overdue_result = await db.execute(
             select(Payment).filter(
                 and_(
@@ -412,11 +617,9 @@ async def get_payment_analytics(
         )
         overdue_payments = overdue_result.scalars().all()
         
-        # Get deactivated partnerships
         deactivated_result = await db.execute(select(PartnershipDeactivation))
         deactivated_partnerships = deactivated_result.scalars().all()
         
-        # Calculate metrics
         total_payments = len(all_payments)
         successful_payments = len([p for p in all_payments if p.payment_status == PaymentStatus.SUCCESS])
         failed_payments = len([p for p in all_payments if p.payment_status == PaymentStatus.FAILED])
@@ -439,11 +642,6 @@ async def get_payment_analytics(
     except Exception as e:
         logger.error(f"Error fetching payment analytics: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch payment analytics: {str(e)}")
-
-# Pricing endpoints removed - use /partnership-levels/ instead
-# GET /partnership-levels/ - Get all partnership levels with pricing
-# POST /partnership-levels/ - Create new partnership level with pricing  
-# PUT /partnership-levels/{id} - Update partnership level pricing
 
 @payments_router.get("/pricing/{partnership_level}", response_model=dict)
 async def get_payment_pricing(
@@ -483,7 +681,7 @@ async def get_all_payment_pricing(
         pricing_info = []
         for level in levels:
             pricing_info.append({
-                "partnership_level": level.partnership_name,
+                "partnership_level": level.partnership_name.value,
                 "pricing": level.prices,
                 "available_plans": list(level.prices.keys()),
                 "currency": "USD"
@@ -502,7 +700,6 @@ async def check_overdue_payments(
 ):
     """Manually check for overdue payments and send notifications (Admin only)"""
     try:
-        # Get all failed monthly payments
         result = await db.execute(
             select(Payment).filter(
                 and_(
@@ -519,7 +716,6 @@ async def check_overdue_payments(
             days_delinquent = (datetime.utcnow() - payment.next_payment_due).days
             await send_payment_notification(payment, days_delinquent, db)
             
-            # Deactivate if 30+ days overdue
             if days_delinquent >= 30:
                 await deactivate_partnership(payment, db)
             

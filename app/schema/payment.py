@@ -6,8 +6,9 @@ from app.models.registration import PartnershipLevel
 
 class PaymentRequest(BaseModel):
     partnership_level: PartnershipLevel
-    plan: PaymentPlan
+    plan: PaymentPlan  # "1st", "2nd", or "3rd" - For monthly: subscription tier, For lateral: lateral tier
     payment_type: PaymentType
+    from_partnership: Optional[PartnershipLevel] = None  # Required for lateral and registration payments
 
 class PaymentResponse(BaseModel):
     payment_intent_id: Optional[str] = None
