@@ -1,6 +1,8 @@
+import json
 from pydantic import BaseModel, EmailStr, Field, validator
 from enum import Enum
 from typing import Optional, Dict, List
+from app.models.partnership_fees import PartnershipLevelGroup
 from app.models.user import UserRole
 from app.schema.document import DocumentResponse
 
@@ -115,7 +117,7 @@ class UserDashboardResponse(BaseModel):
     visibility_level: Optional[int] = None
     ownership: Optional[Dict[str, List[str]]] = None
     kpi_score: Optional[float] = None         
-    partnership_level: Optional[List[str]] = None  # Array of active partnerships
+    partnership_level: List[str] = Field(default_factory=list)  # Array of active partnerships
     retention_period: Optional[int] = 0
     is_registered: Optional[str] = "PENDING"
     registration_step: Optional[int] = 0 
@@ -124,7 +126,35 @@ class UserDashboardResponse(BaseModel):
 
     class Config:
         from_attributes = True
-        
+
+    @validator("partnership_level", pre=True, always=True)
+    def ensure_partnership_level_list(cls, value):
+        """Normalize DB text/JSON values to list for backward compatibility."""
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, list):
+                    return parsed
+                if isinstance(parsed, str):
+                    return [parsed]
+            except json.JSONDecodeError:
+                return [stripped]
+        return value
+class PartnershipLevelStatusResponse(BaseModel):
+    current_level_group: Optional[PartnershipLevelGroup] = None
+    current_level_number: Optional[int] = None
+    current_partnerships: List[str] = Field(default_factory=list)
+    available_partnerships_in_group: List[str] = Field(default_factory=list)
+    next_level_group: Optional[PartnershipLevelGroup] = None
+    next_level_number: Optional[int] = None
+    next_level_partnerships: List[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

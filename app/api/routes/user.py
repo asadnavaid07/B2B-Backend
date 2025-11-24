@@ -7,13 +7,32 @@ from app.models.document import Document
 from app.models.user import RegistrationStatus, User
 from app.models.registration import RegistrationAgreement, RegistrationInfo, RegistrationLevel, RegistrationProduct
 from app.services.auth.jwt import get_current_user
-from app.schema.user import UserDashboardResponse, UserResponse, UserRole, get_super_admin_role
+from app.schema.user import (
+    UserDashboardResponse,
+    UserResponse,
+    UserRole,
+    get_super_admin_role,
+    PartnershipLevelStatusResponse,
+)
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
+from app.utils.partnership_level_mapping import (
+    get_partnership_level_group,
+    get_level_number,
+    LEVEL_PARTNERSHIPS,
+)
+from app.models.partnership_fees import PartnershipLevelGroup
 
 logger = logging.getLogger(__name__)
 user_router = APIRouter(prefix="/user", tags=["user"])
+
+LEVEL_GROUP_ORDER = [
+    PartnershipLevelGroup.LEVEL_1,
+    PartnershipLevelGroup.LEVEL_2,
+    PartnershipLevelGroup.LEVEL_3,
+    PartnershipLevelGroup.LEVEL_4,
+]
 
 class UserUpdate(BaseModel):
     email: Optional[str] = None
@@ -270,6 +289,77 @@ async def registration_selected(
         raise HTTPException(
             status_code=500,
             detail="Failed to fetch registration info"
+        )
+
+@user_router.get("/partnership-level", response_model=PartnershipLevelStatusResponse)
+async def get_partnership_level_status(
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Provide the user's current partnership level group along with available partnerships
+    in that group and information about the next level group.
+    """
+    try:
+        result = await db.execute(
+            select(RegistrationLevel).filter(RegistrationLevel.user_id == current_user.id)
+        )
+        levels = result.scalars().all()
+        if not levels:
+            raise HTTPException(status_code=404, detail="No partnership levels found for this user")
+
+        level_groups = []
+        for level in levels:
+            group = get_partnership_level_group(level.level)
+            if group:
+                level_groups.append((level, group))
+
+        if not level_groups:
+            raise HTTPException(status_code=404, detail="No partnership level groups mapped for this user")
+
+        # Determine highest level group achieved
+        highest_level, current_group = max(
+            level_groups,
+            key=lambda item: get_level_number(item[1])
+        )
+        current_level_number = get_level_number(current_group)
+
+        current_partnerships = [
+            lvl.level.value for lvl, group in level_groups if group == current_group
+        ]
+        available_partnerships_in_group = [
+            partnership.value for partnership in LEVEL_PARTNERSHIPS.get(current_group, [])
+        ]
+
+        # Determine next level group if any
+        next_group = None
+        if current_group in LEVEL_GROUP_ORDER:
+            idx = LEVEL_GROUP_ORDER.index(current_group)
+            if idx < len(LEVEL_GROUP_ORDER) - 1:
+                next_group = LEVEL_GROUP_ORDER[idx + 1]
+
+        next_level_partnerships = [
+            partnership.value for partnership in LEVEL_PARTNERSHIPS.get(next_group, [])
+        ] if next_group else []
+
+        return PartnershipLevelStatusResponse(
+            current_level_group=current_group,
+            current_level_number=current_level_number,
+            current_partnerships=current_partnerships,
+            available_partnerships_in_group=available_partnerships_in_group,
+            next_level_group=next_group,
+            next_level_number=get_level_number(next_group) if next_group else None,
+            next_level_partnerships=next_level_partnerships,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error fetching partnership level info for user {current_user.id}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch partnership level information"
         )
 
 @user_router.post("/first-register", status_code=200)

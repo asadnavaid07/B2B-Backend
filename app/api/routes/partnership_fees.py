@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from app.core.database import get_db
+from sqlalchemy.exc import DBAPIError
+from app.core.database import get_db, async_session, engine
+from asyncpg.exceptions import InvalidCachedStatementError
 from app.models.partnership_fees import PartnershipFees, PartnershipLevelGroup
 from app.schema.partnership_fees import PartnershipFeesCreate, PartnershipFeesUpdate, PartnershipFeesResponse
 from app.services.auth.jwt import get_current_user
@@ -53,6 +55,48 @@ async def get_partnership_fees(
         logger.error(f"Error fetching partnership fees for {level_group.value}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch partnership fees: {str(e)}")
 
+async def _create_partnership_fee_record(db: AsyncSession, fees: PartnershipFeesCreate, admin_id: int):
+    """Shared logic to insert partnership fee row."""
+    # Check if fees already exist for this level group
+    result = await db.execute(
+        select(PartnershipFees).filter(PartnershipFees.level_group == fees.level_group)
+    )
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"Fees for level group {fees.level_group.value} already exist")
+
+    # Validate lateral_fees structure
+    if fees.lateral_fees and not all(key in fees.lateral_fees for key in ["1st", "2nd", "3rd"]):
+        raise HTTPException(
+            status_code=400,
+            detail="lateral_fees must include '1st', '2nd', and '3rd' keys"
+        )
+
+    new_fees = PartnershipFees(
+        level_group=fees.level_group,
+        registration_fee=fees.registration_fee,
+        lateral_fees=fees.lateral_fees or {"1st": 0.0, "2nd": 0.0, "3rd": 0.0}
+    )
+    db.add(new_fees)
+    await db.commit()
+    await db.refresh(new_fees)
+    logger.info(f"Created partnership fees for {fees.level_group.value} by admin_id={admin_id}")
+    return new_fees
+
+
+async def _run_with_cached_plan_retry(fees: PartnershipFeesCreate, admin_id: int, primary_session: AsyncSession):
+    """Execute creation logic and transparently retry once if cached plans become invalid."""
+    try:
+        return await _create_partnership_fee_record(primary_session, fees, admin_id)
+    except DBAPIError as db_err:
+        await primary_session.rollback()
+        if isinstance(getattr(db_err, "orig", None), InvalidCachedStatementError):
+            logger.warning("Invalid cached statement detected; disposing engine and retrying with fresh session.")
+            await engine.dispose()
+            async with async_session() as retry_session:
+                return await _create_partnership_fee_record(retry_session, fees, admin_id)
+        raise
+
+
 @partnership_fees_router.post("/", status_code=status.HTTP_201_CREATED, response_model=PartnershipFeesResponse)
 async def create_partnership_fees(
     fees: PartnershipFeesCreate,
@@ -61,30 +105,7 @@ async def create_partnership_fees(
 ):
     """Create fees for a level group (Admin only)"""
     try:
-        # Check if fees already exist for this level group
-        result = await db.execute(
-            select(PartnershipFees).filter(PartnershipFees.level_group == fees.level_group)
-        )
-        if result.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail=f"Fees for level group {fees.level_group.value} already exist")
-        
-        # Validate lateral_fees structure
-        if fees.lateral_fees and not all(key in fees.lateral_fees for key in ["1st", "2nd", "3rd"]):
-            raise HTTPException(
-                status_code=400, 
-                detail="lateral_fees must include '1st', '2nd', and '3rd' keys"
-            )
-        
-        new_fees = PartnershipFees(
-            level_group=fees.level_group,
-            registration_fee=fees.registration_fee,
-            lateral_fees=fees.lateral_fees or {"1st": 0.0, "2nd": 0.0, "3rd": 0.0}
-        )
-        db.add(new_fees)
-        await db.commit()
-        await db.refresh(new_fees)
-        logger.info(f"Created partnership fees for {fees.level_group.value} by admin_id={current_user.id}")
-        return new_fees
+        return await _run_with_cached_plan_retry(fees, current_user.id, db)
     except HTTPException:
         raise
     except Exception as e:

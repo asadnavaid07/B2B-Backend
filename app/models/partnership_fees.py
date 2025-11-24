@@ -17,7 +17,13 @@ class PartnershipFees(Base):
     id = Column(Integer, primary_key=True, index=True)
     level_group = Column(SQLEnum(PartnershipLevelGroup), unique=True, nullable=False)
     registration_fee = Column(Float, nullable=False, default=0.0)  # Fee for moving to this level from lower level
-    lateral_fees = Column(JSON, nullable=False, default={"1st": 0.0, "2nd": 0.0, "3rd": 0.0})  # Fees for lateral tiers: {"1st": float, "2nd": float, "3rd": float}
+    # DB column was created as `lateral_fee`; map explicitly to keep python attribute plural
+    lateral_fees = Column(
+        "lateral_fee",
+        JSON,
+        nullable=False,
+        default={"1st": 0.0, "2nd": 0.0, "3rd": 0.0},
+    )  # Fees for lateral tiers: {"1st": float, "2nd": float, "3rd": float}
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
