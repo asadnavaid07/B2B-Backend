@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.types import Enum as SQLEnum
@@ -63,6 +63,6 @@ class PartnershipDeactivation(Base):
     partnership_level = Column(SQLEnum(PartnershipLevel), nullable=False)
     deactivation_reason = Column(String, nullable=False)
     deactivated_at = Column(DateTime(timezone=True), server_default=func.now())
-    reactivation_available = Column(String, default="true")  # Using string to match schema
+    reactivation_available = Column(Boolean, default=True)
     reactivated_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

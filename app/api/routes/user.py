@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Select, delete, text
+from sqlalchemy.sql import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.core.database import get_db
 from app.models.document import Document
 from app.models.user import RegistrationStatus, User
-from app.models.registration import RegistrationAgreement, RegistrationInfo, RegistrationLevel, RegistrationProduct
+from app.models.registration import RegistrationAgreement, RegistrationInfo, RegistrationLevel, RegistrationProduct, PartnershipLevel
+from app.models.payment import PartnershipDeactivation
 from app.services.auth.jwt import get_current_user
 from app.schema.user import (
     UserDashboardResponse,
@@ -36,6 +38,10 @@ LEVEL_GROUP_ORDER = [
 
 class UserUpdate(BaseModel):
     email: Optional[str] = None
+
+class PartnershipDeactivationRequest(BaseModel):
+    partnership_level: PartnershipLevel
+    deactivation_reason: Optional[str] = "User requested deactivation"
 
 class RegistrationInfoUpdate(BaseModel):
     business_name: Optional[str] = None
@@ -393,6 +399,102 @@ async def mark_user_as_first(
         logger.error(f"Error marking user as lateral: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to mark user as lateral: {str(e)}")
     
+
+
+@user_router.post("/deactivate-partnership", status_code=200)
+async def deactivate_partnership(
+    request: PartnershipDeactivationRequest,
+    current_user: UserResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Deactivate a specific partnership for the current user.
+    Removes the partnership from the user's active partnerships array.
+    Ensures the user has at least one partnership (defaults to DROP_SHIPPING if empty).
+    """
+    try:
+        # Get user from database
+        result = await db.execute(
+            select(User).filter(User.id == current_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get current active partnerships
+        active_partnerships = []
+        if user.partnership_level:
+            if isinstance(user.partnership_level, list):
+                active_partnerships = [PartnershipLevel(p) if isinstance(p, str) else p for p in user.partnership_level]
+            elif isinstance(user.partnership_level, str):
+                active_partnerships = [PartnershipLevel(user.partnership_level)]
+        
+        # Check if the partnership is active
+        if request.partnership_level not in active_partnerships:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Partnership {request.partnership_level.value} is not active for this user"
+            )
+        
+        # Check if this is the only partnership
+        if len(active_partnerships) == 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot deactivate the only active partnership. You must have at least one active partnership."
+            )
+        
+        # Remove the partnership from active list
+        active_partnerships.remove(request.partnership_level)
+        
+        # Ensure user has at least DROP_SHIPPING if list becomes empty (safety check)
+        if not active_partnerships:
+            active_partnerships = [PartnershipLevel.DROP_SHIPPING]
+        
+        # Update user's partnership level
+        user.partnership_level = [p.value for p in active_partnerships]
+        
+        # Check if deactivation record already exists
+        existing_deactivation = await db.execute(
+            select(PartnershipDeactivation).filter(
+                PartnershipDeactivation.user_id == current_user.id,
+                PartnershipDeactivation.partnership_level == request.partnership_level
+            )
+        )
+        deactivation_record = existing_deactivation.scalar_one_or_none()
+        
+        if not deactivation_record:
+            # Create deactivation record
+            deactivation = PartnershipDeactivation(
+                user_id=current_user.id,
+                partnership_level=request.partnership_level,
+                deactivation_reason=request.deactivation_reason or "User requested deactivation"
+            )
+            db.add(deactivation)
+        else:
+            # Update existing deactivation record if it was reactivated
+            if deactivation_record.reactivated_at:
+                deactivation_record.reactivated_at = None
+                deactivation_record.deactivation_reason = request.deactivation_reason or "User requested deactivation"
+                deactivation_record.deactivated_at = func.now()
+        
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        
+        logger.info(f"Partnership {request.partnership_level.value} deactivated for user_id={current_user.id}")
+        
+        return {
+            "message": f"Partnership {request.partnership_level.value} deactivated successfully",
+            "user_id": user.id,
+            "active_partnerships": [p.value for p in active_partnerships],
+            "deactivated_partnership": request.partnership_level.value
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error deactivating partnership for user {current_user.id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to deactivate partnership: {str(e)}")
 
 
 @user_router.post("/rejected/{user_id}", status_code=200)

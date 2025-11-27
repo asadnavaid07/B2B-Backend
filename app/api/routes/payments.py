@@ -179,12 +179,10 @@ async def create_lateral_payment(
     """
     Create lateral payment for switching between partnerships in the same level.
     
-    Lateral tiers are fixed per partnership:
-    - When on DROP_SHIPPING: 1st tier = CONSIGNMENT, 2nd tier = WHOLESALE, 3rd tier = IMPORT_EXPORT
-    - When on CONSIGNMENT: 1st tier = DROP_SHIPPING, 2nd tier = WHOLESALE, 3rd tier = IMPORT_EXPORT
-    - And so on for all partnerships in each level
+    LOOSE VALIDATION: Users can switch to any partnership in the same level.
+    The 'plan' field represents the lateral tier (1st, 2nd, or 3rd) used for fee calculation.
+    No restrictions on which specific partnership they can move to within the same level.
     
-    The 'plan' field represents the lateral tier (1st, 2nd, or 3rd), not monthly subscription tier.
     Requires from_partnership to be specified.
     """
     try:
@@ -222,12 +220,12 @@ async def create_lateral_payment(
                 detail="Lateral payment only allowed for partnerships in the same level"
             )
         
-        # Validate lateral tier: The plan field represents the lateral tier (1st, 2nd, 3rd)
-        # Check if the requested partnership matches the lateral tier mapping
+        # Validate lateral movement: Only checks if both partnerships are in the same level
+        # No restriction on which specific partnership they can move to
         can_switch, error_message = validate_lateral_switch(
             from_partnership,
             to_partnership,
-            request.plan  # This is the lateral tier (1st, 2nd, or 3rd)
+            request.plan  # This is the lateral tier (1st, 2nd, or 3rd) - used for fee calculation only
         )
         if not can_switch:
             raise HTTPException(status_code=400, detail=error_message)

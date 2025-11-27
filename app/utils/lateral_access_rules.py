@@ -129,10 +129,13 @@ def can_switch_laterally(
     """
     Check if user can switch laterally from from_partnership to to_partnership using the specified lateral tier.
     
+    LOOSE VALIDATION: Only checks if both partnerships are in the same level.
+    No restriction on which specific partnership they can move to.
+    
     Args:
         from_partnership: Partnership user is switching from
         to_partnership: Partnership user wants to switch to
-        lateral_tier: The lateral tier (1st, 2nd, or 3rd)
+        lateral_tier: The lateral tier (1st, 2nd, or 3rd) - used for fee calculation only
     
     Returns:
         (is_allowed, error_message)
@@ -144,15 +147,5 @@ def can_switch_laterally(
     if from_level != to_level:
         return False, "Lateral payment only allowed for partnerships in the same level"
     
-    # Get the target partnership for this tier
-    target_partnership = get_lateral_target_partnership(from_partnership, lateral_tier)
-    
-    if target_partnership is None:
-        return False, f"No lateral tier mapping found for {from_partnership.value}"
-    
-    # Check if the target matches the requested partnership
-    if target_partnership != to_partnership:
-        tier_name = lateral_tier.value
-        return False, f"Lateral tier {tier_name} from {from_partnership.value} leads to {target_partnership.value}, not {to_partnership.value}"
-    
+    # Allow any partnership in the same level - no tier mapping restrictions
     return True, ""
